@@ -1,0 +1,22 @@
+[package]
+name = "signal-cli"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+presage = { git = "https://github.com/whisperfish/presage", features = ["cdsi"] }
+presage-store-sqlite = { git = "https://github.com/whisperfish/presage" }
+tokio = { version = "1.35", features = ["full"] }
+clap = { version = "4.4", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+hex = "0.4"
+mime_guess = "2.0"
+url = "2.5"
+futures = "0.3"
+base64 = "0.22"
+uuid = { version = "1.7", features = ["v4", "serde"] }
+
+[patch.crates-io]
+curve25519-dalek = { git = "https://github.com/signalapp/curve25519-dalek", tag = "signal-curve25519-4.1.3" }
