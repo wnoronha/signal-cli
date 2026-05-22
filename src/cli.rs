@@ -24,16 +24,27 @@ pub struct Cli {
     #[clap(long = "service-environment", default_value = "live", value_enum)]
     pub service_environment: ServiceEnvironment,
 
-    #[clap(long = "trust-new-identities", default_value = "on-first-use", value_enum)]
+    #[clap(
+        long = "trust-new-identities",
+        default_value = "on-first-use",
+        value_enum
+    )]
     pub trust_new_identities: TrustMode,
 
-    #[clap(short = 'v', long = "verbose", help = "Raise log level and include lib signal logs")]
+    #[clap(
+        short = 'v',
+        long = "verbose",
+        help = "Raise log level and include lib signal logs"
+    )]
     pub verbose: bool,
 
     #[clap(long = "log-file", help = "Write log output to the given file")]
     pub log_file: Option<PathBuf>,
 
-    #[clap(long = "scrub-log", help = "Scrub possibly sensitive information from the log")]
+    #[clap(
+        long = "scrub-log",
+        help = "Scrub possibly sensitive information from the log"
+    )]
     pub scrub_log: bool,
 
     #[clap(long = "dbus", help = "Make request via user dbus")]
@@ -42,7 +53,10 @@ pub struct Cli {
     #[clap(long = "dbus-system", help = "Make request via system dbus")]
     pub dbus_system: bool,
 
-    #[clap(long = "bus-name", help = "Connect to another D-Bus bus name than the default")]
+    #[clap(
+        long = "bus-name",
+        help = "Connect to another D-Bus bus name than the default"
+    )]
     pub bus_name: Option<String>,
 
     #[clap(long = "disable-send-log", help = "Disable message send log")]
@@ -76,19 +90,32 @@ pub enum TrustMode {
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum Command {
-    #[clap(name = "register", about = "Register a phone number with SMS or voice verification")]
+    #[clap(
+        name = "register",
+        about = "Register a phone number with SMS or voice verification"
+    )]
     Register {
-        #[clap(short = 'v', long = "voice", help = "The verification should be done over voice, not SMS")]
+        #[clap(
+            short = 'v',
+            long = "voice",
+            help = "The verification should be done over voice, not SMS"
+        )]
         voice: bool,
 
         #[clap(long = "captcha", help = "The captcha token")]
         captcha: Option<String>,
 
-        #[clap(long = "reregister", help = "Register even if account is already registered")]
+        #[clap(
+            long = "reregister",
+            help = "Register even if account is already registered"
+        )]
         reregister: bool,
     },
 
-    #[clap(name = "verify", about = "Verify the number using the code received via SMS or voice")]
+    #[clap(
+        name = "verify",
+        about = "Verify the number using the code received via SMS or voice"
+    )]
     Verify {
         #[clap(help = "The verification code")]
         verification_code: String,
@@ -99,34 +126,62 @@ pub enum Command {
 
     #[clap(name = "unregister", about = "Disable push support for this device")]
     Unregister {
-        #[clap(long = "delete-account", help = "Delete account completely from server")]
+        #[clap(
+            long = "delete-account",
+            help = "Delete account completely from server"
+        )]
         delete_account: bool,
     },
 
-    #[clap(name = "deleteLocalAccountData", about = "Delete all local data for this account")]
+    #[clap(
+        name = "deleteLocalAccountData",
+        about = "Delete all local data for this account"
+    )]
     DeleteLocalAccountData {
-        #[clap(long = "ignore-registered", help = "Delete the account data even though registered")]
+        #[clap(
+            long = "ignore-registered",
+            help = "Delete the account data even though registered"
+        )]
         ignore_registered: bool,
     },
 
-    #[clap(name = "updateAccount", about = "Update the account attributes on the signal server")]
+    #[clap(
+        name = "updateAccount",
+        about = "Update the account attributes on the signal server"
+    )]
     UpdateAccount {
         #[clap(short = 'n', long = "device-name", help = "Set a new device name")]
         device_name: Option<String>,
 
-        #[clap(short = 'u', long = "username", help = "Specify a username nickname or nickname.discriminator")]
+        #[clap(
+            short = 'u',
+            long = "username",
+            help = "Specify a username nickname or nickname.discriminator"
+        )]
         username: Option<String>,
 
-        #[clap(long = "delete-username", help = "Delete the username associated with this account")]
+        #[clap(
+            long = "delete-username",
+            help = "Delete the username associated with this account"
+        )]
         delete_username: bool,
 
-        #[clap(long = "unrestricted-unidentified-sender", help = "Enable if anyone can send unidentified messages")]
+        #[clap(
+            long = "unrestricted-unidentified-sender",
+            help = "Enable if anyone can send unidentified messages"
+        )]
         unrestricted_unidentified_sender: Option<bool>,
 
-        #[clap(long = "discoverable-by-number", help = "Enable if discoverable by phone number")]
+        #[clap(
+            long = "discoverable-by-number",
+            help = "Enable if discoverable by phone number"
+        )]
         discoverable_by_number: Option<bool>,
 
-        #[clap(long = "number-sharing", help = "Indicates if Signal should share its phone number")]
+        #[clap(
+            long = "number-sharing",
+            help = "Indicates if Signal should share its phone number"
+        )]
         number_sharing: Option<bool>,
     },
 
@@ -154,7 +209,10 @@ pub enum Command {
         pin: Option<String>,
     },
 
-    #[clap(name = "updateConfiguration", about = "Update signal configs and sync them to linked devices")]
+    #[clap(
+        name = "updateConfiguration",
+        about = "Update signal configs and sync them to linked devices"
+    )]
     UpdateConfiguration {
         #[clap(long = "read-receipts")]
         read_receipts: Option<bool>,
@@ -202,7 +260,10 @@ pub enum Command {
         device_id: i64,
     },
 
-    #[clap(name = "getUserStatus", about = "Check if users are registered on Signal")]
+    #[clap(
+        name = "getUserStatus",
+        about = "Check if users are registered on Signal"
+    )]
     GetUserStatus {
         #[clap(help = "Numbers to check")]
         recipient: Vec<String>,
@@ -219,10 +280,18 @@ pub enum Command {
         #[clap(long = "notify-self")]
         notify_self: bool,
 
-        #[clap(short = 'a', long = "target-author", help = "Number of the original author")]
+        #[clap(
+            short = 'a',
+            long = "target-author",
+            help = "Number of the original author"
+        )]
         target_author: String,
 
-        #[clap(short = 't', long = "target-timestamp", help = "Timestamp of the target message")]
+        #[clap(
+            short = 't',
+            long = "target-timestamp",
+            help = "Timestamp of the target message"
+        )]
         target_timestamp: i64,
 
         #[clap(long = "story")]
@@ -391,7 +460,10 @@ pub enum Command {
         poll_timestamp: i64,
     },
 
-    #[clap(name = "sendMessageRequestResponse", about = "Send response to a message request")]
+    #[clap(
+        name = "sendMessageRequestResponse",
+        about = "Send response to a message request"
+    )]
     SendMessageRequestResponse {
         #[clap(help = "Recipients")]
         recipient: Vec<String>,
@@ -406,7 +478,10 @@ pub enum Command {
         r#type: String, // accept, delete
     },
 
-    #[clap(name = "sendPaymentNotification", about = "Send a payment notification")]
+    #[clap(
+        name = "sendPaymentNotification",
+        about = "Send a payment notification"
+    )]
     SendPaymentNotification {
         #[clap(help = "Recipient")]
         recipient: String,
@@ -529,7 +604,10 @@ pub enum Command {
         stop: bool,
     },
 
-    #[clap(name = "remoteDelete", about = "Remotely delete a previously sent message")]
+    #[clap(
+        name = "remoteDelete",
+        about = "Remotely delete a previously sent message"
+    )]
     RemoteDelete {
         #[clap(help = "Recipients")]
         recipient: Vec<String>,
@@ -734,6 +812,9 @@ pub enum Command {
 
         #[clap(short = 'e', long = "expiration")]
         expiration: Option<i64>,
+
+        #[clap(long = "phone-number")]
+        phone_number: Option<String>,
     },
 
     #[clap(name = "updateDevice", about = "Update a linked device")]
@@ -778,7 +859,10 @@ pub enum Command {
     #[clap(name = "sendContacts", about = "Send sync message with contact list")]
     SendContacts,
 
-    #[clap(name = "sendSyncRequest", about = "Send a sync request to primary device")]
+    #[clap(
+        name = "sendSyncRequest",
+        about = "Send a sync request to primary device"
+    )]
     SendSyncRequest,
 
     #[clap(name = "uploadStickerPack", about = "Upload a new sticker pack")]
@@ -787,7 +871,10 @@ pub enum Command {
         path: String,
     },
 
-    #[clap(name = "listStickerPacks", about = "Show a list of known sticker packs")]
+    #[clap(
+        name = "listStickerPacks",
+        about = "Show a list of known sticker packs"
+    )]
     ListStickerPacks,
 
     #[clap(name = "addStickerPack", about = "Install a sticker pack")]
@@ -892,7 +979,10 @@ pub enum Command {
         receive_mode: Option<String>, // on-start, manual
     },
 
-    #[clap(name = "submitRateLimitChallenge", about = "Submit challenge to lift rate limits")]
+    #[clap(
+        name = "submitRateLimitChallenge",
+        about = "Submit challenge to lift rate limits"
+    )]
     SubmitRateLimitChallenge {
         #[clap(long = "challenge")]
         challenge: String,
@@ -903,4 +993,73 @@ pub enum Command {
 
     #[clap(name = "version", about = "Show version information")]
     Version,
+}
+
+impl Command {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Command::Register { .. } => "register",
+            Command::Verify { .. } => "verify",
+            Command::Unregister { .. } => "unregister",
+            Command::DeleteLocalAccountData { .. } => "deleteLocalAccountData",
+            Command::UpdateAccount { .. } => "updateAccount",
+            Command::StartChangeNumber { .. } => "startChangeNumber",
+            Command::FinishChangeNumber { .. } => "finishChangeNumber",
+            Command::UpdateConfiguration { .. } => "updateConfiguration",
+            Command::SetPin { .. } => "setPin",
+            Command::RemovePin => "removePin",
+            Command::Link { .. } => "link",
+            Command::AddDevice { .. } => "addDevice",
+            Command::ListAccounts => "listAccounts",
+            Command::ListDevices => "listDevices",
+            Command::RemoveDevice { .. } => "removeDevice",
+            Command::GetUserStatus { .. } => "getUserStatus",
+            Command::SendAdminDelete { .. } => "sendAdminDelete",
+            Command::Send { .. } => "send",
+            Command::SendPollCreate { .. } => "sendPollCreate",
+            Command::SendPollVote { .. } => "sendPollVote",
+            Command::SendPollTerminate { .. } => "sendPollTerminate",
+            Command::SendMessageRequestResponse { .. } => "sendMessageRequestResponse",
+            Command::SendPaymentNotification { .. } => "sendPaymentNotification",
+            Command::SendPinMessage { .. } => "sendPinMessage",
+            Command::SendUnpinMessage { .. } => "sendUnpinMessage",
+            Command::SendReaction { .. } => "sendReaction",
+            Command::SendReceipt { .. } => "sendReceipt",
+            Command::SendTyping { .. } => "sendTyping",
+            Command::RemoteDelete { .. } => "remoteDelete",
+            Command::Receive { .. } => "receive",
+            Command::JoinGroup { .. } => "joinGroup",
+            Command::UpdateGroup { .. } => "updateGroup",
+            Command::QuitGroup { .. } => "quitGroup",
+            Command::ListGroups { .. } => "listGroups",
+            Command::ListContacts { .. } => "listContacts",
+            Command::ListIdentities { .. } => "listIdentities",
+            Command::Trust { .. } => "trust",
+            Command::UpdateProfile { .. } => "updateProfile",
+            Command::UpdateContact { .. } => "updateContact",
+            Command::UpdateDevice { .. } => "updateDevice",
+            Command::RemoveContact { .. } => "removeContact",
+            Command::Block { .. } => "block",
+            Command::Unblock { .. } => "unblock",
+            Command::SendContacts => "sendContacts",
+            Command::SendSyncRequest => "sendSyncRequest",
+            Command::UploadStickerPack { .. } => "uploadStickerPack",
+            Command::ListStickerPacks => "listStickerPacks",
+            Command::AddStickerPack { .. } => "addStickerPack",
+            Command::GetAttachment { .. } => "getAttachment",
+            Command::GetAvatar { .. } => "getAvatar",
+            Command::GetSticker { .. } => "getSticker",
+            Command::Daemon { .. } => "daemon",
+            Command::JsonRpc { .. } => "jsonRpc",
+            Command::SubmitRateLimitChallenge { .. } => "submitRateLimitChallenge",
+            Command::Version => "version",
+        }
+    }
+
+    pub fn requires_account(&self) -> bool {
+        !matches!(
+            self,
+            Command::Version | Command::ListAccounts | Command::Link { .. }
+        )
+    }
 }

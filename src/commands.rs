@@ -1,29 +1,157 @@
+use anyhow::{Context, anyhow};
+use base64::prelude::*;
+use futures::{StreamExt, channel::oneshot, pin_mut};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::UNIX_EPOCH;
-use std::io::{Read, Write};
-use anyhow::{anyhow, Context};
-use base64::prelude::*;
-use futures::{channel::oneshot, pin_mut, StreamExt};
-use serde::Serialize;
 
+use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
-use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
-use presage::libsignal_service::prelude::Uuid;
-use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::content::{ContentBody, DataMessage, GroupContextV2};
-use presage::libsignal_service::proto::{
-    data_message, receipt_message, typing_message, ReceiptMessage, TypingMessage,
-};
+use presage::libsignal_service::prelude::Uuid;
+use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::proto::attachment_pointer::AttachmentIdentifier;
+use presage::libsignal_service::proto::{
+    ReceiptMessage, TypingMessage, data_message, receipt_message, typing_message,
+};
+use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 use presage::manager::{Registered, RegistrationOptions};
-use presage::store::{Store, ContentsStore, ContentExt, Thread};
-use presage::Manager;
-use presage_store_sqlite::SqliteStore;
+use presage::model::contacts::Contact;
 use presage::model::identity::OnNewIdentity;
 use presage::model::messages::Received;
+use presage::store::{ContentExt, Store, Thread};
+use presage_store_sqlite::SqliteStore;
 
+use crate::errors::SignalError;
+use crate::output::{
+    AccountList, AttachmentEnvelope, ContactInfo, ContactList, DataMessageEnvelope, DeviceInfo,
+    DeviceList, GroupInfo, GroupList, IdentityInfo, MediaData, ProfileInfo, ReceiveEnvelope,
+    Render, SendResult, StickerInfo, StickerPackInfo, StickerPackList, SuccessResult, UserStatus,
+};
+use crate::utils::{find_local_accounts, open_sqlite_store, resolve_recipient};
+pub(crate) async fn run_list_sticker_packs(
+    config_dir: &Path,
+    active_account: Option<String>,
+) -> anyhow::Result<StickerPackList> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_list_sticker_packs(&mut manager).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_list_sticker_packs<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+) -> anyhow::Result<StickerPackList> {
+    let mut packs = Vec::new();
+    for pack in manager.store().sticker_packs().await?.flatten() {
+        packs.push(StickerPackInfo {
+            id: hex::encode(pack.id),
+            key: hex::encode(pack.key),
+            title: pack.manifest.title,
+            author: pack.manifest.author,
+            stickers: pack
+                .manifest
+                .stickers
+                .into_iter()
+                .map(|s| StickerInfo {
+                    id: s.id,
+                    emoji: s.emoji,
+                    content_type: s.content_type,
+                    data: s.bytes.map(|b| BASE64_STANDARD.encode(b)),
+                })
+                .collect(),
+        });
+    }
+    Ok(StickerPackList { packs })
+}
+
+pub(crate) async fn run_add_sticker_pack(
+    config_dir: &Path,
+    active_account: Option<String>,
+    pack_id: String,
+    pack_key: String,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_add_sticker_pack(&mut manager, pack_id, pack_key).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_add_sticker_pack<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    pack_id_str: String,
+    pack_key_str: String,
+) -> anyhow::Result<SuccessResult> {
+    let pack_id = hex::decode(pack_id_str.trim_start_matches("0x"))?;
+    let pack_key = hex::decode(pack_key_str.trim_start_matches("0x"))?;
+
+    let pack_id: [u8; 16] = pack_id
+        .try_into()
+        .map_err(|_| anyhow!("Invalid pack ID length (must be 16 bytes)"))?;
+    let pack_key: [u8; 32] = pack_key
+        .try_into()
+        .map_err(|_| anyhow!("Invalid pack key length (must be 32 bytes)"))?;
+
+    manager.install_sticker_pack(&pack_id, &pack_key).await?;
+
+    Ok(SuccessResult {
+        success: true,
+        message: "Sticker pack installed successfully.".to_string(),
+    })
+}
+
+pub(crate) async fn run_get_sticker(
+    config_dir: &Path,
+    active_account: Option<String>,
+    pack_id: String,
+    sticker_id: u32,
+) -> anyhow::Result<MediaData> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_get_sticker(&mut manager, pack_id, sticker_id).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_get_sticker<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    pack_id_str: String,
+    sticker_id: u32,
+) -> anyhow::Result<MediaData> {
+    let pack_id = hex::decode(pack_id_str.trim_start_matches("0x"))?;
+    let pack_id_bytes: [u8; 16] = pack_id
+        .try_into()
+        .map_err(|_| anyhow!("Invalid pack ID length"))?;
+
+    let sticker = manager
+        .sticker_metadata(&pack_id_bytes, sticker_id)
+        .await?
+        .ok_or_else(|| anyhow!("Sticker not found."))?;
+
+    if let Some(bytes) = sticker.bytes {
+        Ok(MediaData {
+            data: BASE64_STANDARD.encode(bytes),
+        })
+    } else {
+        anyhow::bail!("Sticker data not available.");
+    }
+}
+
+pub(crate) async fn run_upload_sticker_pack(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _manifest: String,
+) -> anyhow::Result<SuccessResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(SignalError::LibraryLimitation(
+        "uploadStickerPack is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
 pub async fn execute_command(
     args: crate::cli::Cli,
     config_dir: PathBuf,
@@ -36,14 +164,30 @@ pub async fn execute_command(
         }
 
         crate::cli::Command::ListAccounts => {
-            run_list_accounts(&config_dir).await
+            run_list_accounts(&config_dir).await?.render(args.output);
+            Ok(())
         }
 
-        crate::cli::Command::Register { voice, captcha, reregister } => {
-            run_register(&config_dir, active_account, voice, captcha, reregister, args.service_environment).await
+        crate::cli::Command::Register {
+            voice,
+            captcha,
+            reregister,
+        } => {
+            run_register(
+                &config_dir,
+                active_account,
+                voice,
+                captcha,
+                reregister,
+                args.service_environment,
+            )
+            .await
         }
 
-        crate::cli::Command::Verify { verification_code: _, pin: _ } => {
+        crate::cli::Command::Verify {
+            verification_code: _,
+            pin: _,
+        } => {
             println!("Verification is performed interactively during registration.");
             println!("Please run: signal-cli -a <PHONE> register");
             println!("And enter the verification code when prompted.");
@@ -51,7 +195,7 @@ pub async fn execute_command(
         }
 
         crate::cli::Command::Link { name } => {
-            run_link(&config_dir, name, args.service_environment).await
+            run_link(&config_dir, active_account, name, args.service_environment).await
         }
 
         crate::cli::Command::AddDevice { uri } => {
@@ -59,15 +203,27 @@ pub async fn execute_command(
         }
 
         crate::cli::Command::ListDevices => {
-            run_list_devices(&config_dir, active_account).await
+            run_list_devices(&config_dir, active_account)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::RemoveDevice { device_id } => {
-            run_remove_device(&config_dir, active_account, device_id).await
+            run_remove_device(&config_dir, active_account, device_id)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
-        crate::cli::Command::GetUserStatus { recipient, username } => {
-            run_get_user_status(&config_dir, active_account, recipient, username).await
+        crate::cli::Command::GetUserStatus {
+            recipient,
+            username,
+        } => {
+            run_get_user_status(&config_dir, active_account, recipient, username)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::Send {
@@ -109,7 +265,9 @@ pub async fn execute_command(
                 message_from_stdin,
                 attachment,
             )
-            .await
+            .await?
+            .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::Receive {
@@ -121,11 +279,21 @@ pub async fn execute_command(
             ignore_stickers: _,
             send_read_receipts: _,
         } => {
-            run_receive(&config_dir, active_account, max_messages.map(|m| m as usize), args.output).await
+            run_receive(
+                &config_dir,
+                active_account,
+                max_messages.map(|m| m as usize),
+            )
+            .await?
+            .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::ListGroups { detailed, group_id } => {
-            run_list_groups(&config_dir, active_account, detailed, group_id).await
+            run_list_groups(&config_dir, active_account, detailed, group_id)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::ListContacts {
@@ -136,15 +304,32 @@ pub async fn execute_command(
             detailed,
             internal: _,
         } => {
-            run_list_contacts(&config_dir, active_account, name, detailed).await
+            run_list_contacts(&config_dir, active_account, name, detailed)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
-        crate::cli::Command::GetAttachment { id, recipient, group_id } => {
-            run_get_attachment(&config_dir, active_account, id, recipient, group_id).await
+        crate::cli::Command::GetAttachment {
+            id,
+            recipient,
+            group_id,
+        } => {
+            run_get_attachment(&config_dir, active_account, id, recipient, group_id)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
-        crate::cli::Command::GetAvatar { contact, profile, group_id } => {
-            run_get_avatar(&config_dir, active_account, contact, profile, group_id).await
+        crate::cli::Command::GetAvatar {
+            contact,
+            profile,
+            group_id,
+        } => {
+            run_get_avatar(&config_dir, active_account, contact, profile, group_id)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::UpdateProfile {
@@ -164,7 +349,9 @@ pub async fn execute_command(
                 about,
                 about_emoji,
             )
-            .await
+            .await?
+            .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::SendReaction {
@@ -190,7 +377,9 @@ pub async fn execute_command(
                 target_timestamp,
                 remove,
             )
-            .await
+            .await?
+            .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::SendReceipt {
@@ -198,13 +387,29 @@ pub async fn execute_command(
             username: _,
             target_timestamp,
             r#type,
-        } => run_send_receipt(&config_dir, active_account, recipient, target_timestamp, r#type).await,
+        } => {
+            run_send_receipt(
+                &config_dir,
+                active_account,
+                recipient,
+                target_timestamp,
+                r#type,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
 
         crate::cli::Command::SendTyping {
             recipient,
             group_id,
             stop,
-        } => run_send_typing(&config_dir, active_account, recipient, group_id, stop).await,
+        } => {
+            run_send_typing(&config_dir, active_account, recipient, group_id, stop)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
 
         crate::cli::Command::JoinGroup { uri } => {
             run_join_group(&config_dir, active_account, uri).await
@@ -259,6 +464,89 @@ pub async fn execute_command(
             run_quit_group(&config_dir, active_account, group_id, delete).await
         }
 
+        crate::cli::Command::RemoteDelete {
+            recipient,
+            group_id,
+            username,
+            target_timestamp,
+        } => {
+            run_remote_delete(
+                &config_dir,
+                active_account,
+                recipient,
+                group_id,
+                username,
+                target_timestamp,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendPollCreate {
+            recipient,
+            group_id,
+            question,
+            option,
+            no_multi,
+            ..
+        } => {
+            run_send_poll_create(
+                &config_dir,
+                active_account,
+                recipient,
+                group_id,
+                question,
+                option,
+                !no_multi,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendPollVote {
+            recipient,
+            group_id,
+            poll_timestamp,
+            option,
+            ..
+        } => {
+            run_send_poll_vote(
+                &config_dir,
+                active_account,
+                recipient,
+                group_id,
+                poll_timestamp,
+                option.into_iter().map(|o| o as i32).collect(),
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendPollTerminate {
+            recipient,
+            group_id,
+            poll_timestamp,
+            ..
+        } => {
+            run_send_poll_terminate(
+                &config_dir,
+                active_account,
+                recipient,
+                group_id,
+                poll_timestamp,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+        crate::cli::Command::SendMessageRequestResponse { .. }
+        | crate::cli::Command::SendPaymentNotification { .. }
+        | crate::cli::Command::SendPinMessage { .. }
+        | crate::cli::Command::SendUnpinMessage { .. } => not_implemented(args.command.name()),
+
         crate::cli::Command::Unregister { delete_account } => {
             run_unregister(&config_dir, active_account, delete_account).await
         }
@@ -267,42 +555,177 @@ pub async fn execute_command(
             run_delete_local_account_data(&config_dir, active_account, ignore_registered).await
         }
 
-        crate::cli::Command::SetPin { registration_lock_pin } => {
-            run_set_pin(&config_dir, active_account, registration_lock_pin).await
-        }
+        crate::cli::Command::SetPin {
+            registration_lock_pin,
+        } => run_set_pin(&config_dir, active_account, registration_lock_pin).await,
 
-        crate::cli::Command::RemovePin => {
-            run_remove_pin(&config_dir, active_account).await
-        }
+        crate::cli::Command::RemovePin => run_remove_pin(&config_dir, active_account).await,
 
-        crate::cli::Command::UpdateAccount { .. } => {
-            println!("updateAccount is not yet implemented.");
+        crate::cli::Command::UpdateAccount { .. }
+        | crate::cli::Command::StartChangeNumber { .. }
+        | crate::cli::Command::FinishChangeNumber { .. }
+        | crate::cli::Command::UpdateConfiguration { .. } => {
+            println!(
+                "Account settings and migration commands are not yet supported by the underlying presage library."
+            );
             Ok(())
         }
 
-        // Catch-all fallback for other subcommands (clean simulated outputs)
-        _ => {
-            let cmd_name = format!("{:?}", args.command);
-            println!("Subcommand '{}' parsed successfully, but is not fully mapped in the Whisperfish presage CLI backend.", cmd_name);
-            println!("Simulated success response for drop-in compatibility.");
+        crate::cli::Command::UpdateContact {
+            recipient,
+            given_name,
+            family_name,
+            nick_given_name,
+            nick_family_name,
+            note,
+            expiration,
+            phone_number,
+        } => {
+            run_update_contact(
+                &config_dir,
+                active_account,
+                recipient,
+                given_name,
+                family_name,
+                nick_given_name,
+                nick_family_name,
+                note,
+                expiration,
+                phone_number,
+            )
+            .await?
+            .render(args.output);
             Ok(())
         }
+
+        crate::cli::Command::ListIdentities { number } => {
+            run_list_identities(&config_dir, active_account, number)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::Trust { recipient, .. } => {
+            run_trust(
+                &config_dir,
+                active_account,
+                recipient,
+                "trusted".to_string(),
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::RemoveContact { recipient, .. } => {
+            run_remove_contact(&config_dir, active_account, recipient)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::Block {
+            recipient,
+            group_id,
+        } => {
+            run_block(&config_dir, active_account, recipient, group_id)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::Unblock {
+            recipient,
+            group_id,
+        } => {
+            run_unblock(&config_dir, active_account, recipient, group_id)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendContacts => {
+            run_send_contacts(&config_dir, active_account)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendSyncRequest => {
+            run_send_sync_request(&config_dir, active_account)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::UploadStickerPack { path } => {
+            run_upload_sticker_pack(&config_dir, active_account, path)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::ListStickerPacks => {
+            run_list_sticker_packs(&config_dir, active_account)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::AddStickerPack { uri } => {
+            // signal-cli addStickerPack takes a uri like https://signal.art/addstickers/#pack_id=...&pack_key=...
+            // For now, we expect pack_id and pack_key as separate arguments in our stub,
+            // but the CLI definition has uri. We need to parse the uri.
+            let (pack_id, pack_key) = if let Some(fragment) = uri.split('#').nth(1) {
+                let mut id = None;
+                let mut key = None;
+                for pair in fragment.split('&') {
+                    if let Some(val) = pair.strip_prefix("pack_id=") {
+                        id = Some(val.to_string());
+                    } else if let Some(val) = pair.strip_prefix("pack_key=") {
+                        key = Some(val.to_string());
+                    }
+                }
+                (id.unwrap_or_default(), key.unwrap_or_default())
+            } else {
+                (String::new(), String::new())
+            };
+            run_add_sticker_pack(&config_dir, active_account, pack_id, pack_key)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::GetSticker {
+            pack_id,
+            sticker_id,
+        } => {
+            run_get_sticker(&config_dir, active_account, pack_id, sticker_id as u32)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::Daemon { .. } | crate::cli::Command::JsonRpc { .. } => {
+            crate::rpc::server::run_json_rpc(config_dir, active_account, args.command).await
+        }
+
+        crate::cli::Command::SubmitRateLimitChallenge { .. }
+        | crate::cli::Command::SendAdminDelete { .. }
+        | crate::cli::Command::UpdateDevice { .. } => not_implemented(args.command.name()),
     }
 }
 
-async fn run_list_accounts(config_dir: &Path) -> anyhow::Result<()> {
+fn not_implemented(name: &str) -> anyhow::Result<()> {
+    Err(SignalError::NotImplemented(name.to_string()).into())
+}
+
+pub(crate) async fn run_list_accounts(config_dir: &Path) -> anyhow::Result<AccountList> {
     let accounts = find_local_accounts(config_dir)?;
-    if accounts.is_empty() {
-        println!("No accounts registered.");
-    } else {
-        for account in accounts {
-            println!("{}", account);
-        }
-    }
-    Ok(())
+    Ok(AccountList { accounts })
 }
 
-async fn run_register(
+pub(crate) async fn run_register(
     config_dir: &Path,
     active_account: Option<String>,
     voice: bool,
@@ -310,19 +733,18 @@ async fn run_register(
     reregister: bool,
     service_env: crate::cli::ServiceEnvironment,
 ) -> anyhow::Result<()> {
-    let account = active_account.ok_or_else(|| anyhow!("Account phone number (-a / --account) must be specified for registration."))?;
+    let account = active_account.ok_or_else(|| {
+        anyhow!("Account phone number (-a / --account) must be specified for registration.")
+    })?;
     let servers = match service_env {
         crate::cli::ServiceEnvironment::Live => SignalServers::Production,
         crate::cli::ServiceEnvironment::Staging => SignalServers::Staging,
     };
 
     let db_path = config_dir.join(format!("{}.db", account));
-    let store = SqliteStore::open_with_passphrase(
-        db_path.to_str().unwrap(),
-        None,
-        OnNewIdentity::Trust,
-    )
-    .await?;
+    let store =
+        SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, OnNewIdentity::Trust)
+            .await?;
 
     let phone_number = PhoneNumber::from_str(&account)
         .map_err(|e| anyhow!("Invalid E.164 phone number: {:?}", e))?;
@@ -360,8 +782,9 @@ async fn run_register(
     Ok(())
 }
 
-async fn run_link(
+pub(crate) async fn run_link(
     config_dir: &Path,
+    active_account: Option<String>,
     name: Option<String>,
     service_env: crate::cli::ServiceEnvironment,
 ) -> anyhow::Result<()> {
@@ -370,25 +793,27 @@ async fn run_link(
         crate::cli::ServiceEnvironment::Staging => SignalServers::Staging,
     };
     let device_name = name.unwrap_or_else(|| "signal-cli-rust".to_string());
-    let temp_db_path = config_dir.join("link_temp.db");
-    if temp_db_path.exists() {
-        let _ = std::fs::remove_file(&temp_db_path);
+
+    // Use active_account if provided, otherwise use a temporary file
+    let db_name = active_account
+        .clone()
+        .unwrap_or_else(|| "link_temp".to_string());
+    let db_path = config_dir.join(format!("{}.db", db_name));
+
+    if db_path.exists() {
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(config_dir.join(format!("{}.db-wal", db_name)));
+        let _ = std::fs::remove_file(config_dir.join(format!("{}.db-shm", db_name)));
     }
-    let store = SqliteStore::open_with_passphrase(
-        temp_db_path.to_str().unwrap(),
-        None,
-        OnNewIdentity::Trust,
-    )
-    .await?;
+
+    let store =
+        SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, OnNewIdentity::Trust)
+            .await?;
 
     let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
     println!("Linking secondary device...");
-    let manager_fut = Manager::link_secondary_device(
-        store,
-        servers,
-        device_name,
-        provisioning_link_tx,
-    );
+    let manager_fut =
+        Manager::link_secondary_device(store, servers, device_name, provisioning_link_tx);
 
     let link_rx_fut = async move {
         match provisioning_link_rx.await {
@@ -407,19 +832,46 @@ async fn run_link(
     let phone_number = manager.registration_data().phone_number.to_string();
     println!("Successfully linked device for account: {}", phone_number);
 
-    // Drop manager to release file locks
+    // Drop manager to release file locks and ensure flush
     drop(manager);
 
-    let final_db_path = config_dir.join(format!("{}.db", phone_number));
-    if final_db_path.exists() {
-        let _ = std::fs::remove_file(&final_db_path);
+    // If we used a temporary name or a name different from the actual phone number, rename it now
+    if db_name != phone_number {
+        let final_db_path = config_dir.join(format!("{}.db", phone_number));
+        if final_db_path.exists() {
+            let _ = std::fs::remove_file(&final_db_path);
+            let _ = std::fs::remove_file(config_dir.join(format!("{}.db-wal", phone_number)));
+            let _ = std::fs::remove_file(config_dir.join(format!("{}.db-shm", phone_number)));
+        }
+
+        // Rename main file
+        std::fs::rename(&db_path, &final_db_path)?;
+
+        // Also rename WAL and SHM files if they exist
+        let wal_path = config_dir.join(format!("{}.db-wal", db_name));
+        if wal_path.exists() {
+            std::fs::rename(
+                &wal_path,
+                config_dir.join(format!("{}.db-wal", phone_number)),
+            )?;
+        }
+        let shm_path = config_dir.join(format!("{}.db-shm", db_name));
+        if shm_path.exists() {
+            std::fs::rename(
+                &shm_path,
+                config_dir.join(format!("{}.db-shm", phone_number)),
+            )?;
+        }
+
+        println!("Account database saved to: {:?}", final_db_path);
+    } else {
+        println!("Account database saved to: {:?}", db_path);
     }
-    std::fs::rename(&temp_db_path, &final_db_path)?;
-    println!("Account database saved to: {:?}", final_db_path);
+
     Ok(())
 }
 
-async fn run_add_device(
+pub(crate) async fn run_add_device(
     config_dir: &Path,
     active_account: Option<String>,
     uri: String,
@@ -433,81 +885,126 @@ async fn run_add_device(
     Ok(())
 }
 
-async fn run_list_devices(
+pub(crate) async fn run_list_devices(
     config_dir: &Path,
     active_account: Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<DeviceList> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_list_devices(&mut manager).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_list_devices<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+) -> anyhow::Result<DeviceList> {
     let devices = manager.devices().await?;
     let current_device_id = manager.device_id();
 
-    for device in devices {
-        let device_name = device.name.unwrap_or_else(|| "(no device name)".to_string());
-        let current_marker = if device.id == current_device_id {
-            "(this device)"
-        } else {
-            ""
-        };
-        println!(
-            "- Device {} {}\n  Name: {}\n  Created: {}\n  Last seen: {}",
-            device.id, current_marker, device_name, device.created_at, device.last_seen
-        );
-    }
-    Ok(())
+    let device_infos = devices
+        .into_iter()
+        .map(|device| DeviceInfo {
+            id: device.id.into(),
+            name: device.name,
+            created_at: device.created_at.timestamp_millis() as u64,
+            last_seen: device.last_seen.timestamp_millis() as u64,
+            is_this_device: device.id == current_device_id,
+        })
+        .collect();
+
+    Ok(DeviceList {
+        devices: device_infos,
+    })
 }
 
-async fn run_remove_device(
+pub(crate) async fn run_remove_device(
     config_dir: &Path,
     active_account: Option<String>,
     device_id: i64,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let manager = load_registered_and_receive(store).await?;
-    manager.unlink_secondary(device_id as u32).await?;
-    println!("Unlinked device with id: {}", device_id);
-    Ok(())
+    let mut manager = load_registered_and_receive(store).await?;
+    core_remove_device(&mut manager, device_id as u32).await
 }
 
-async fn run_get_user_status(
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_remove_device<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    device_id: u32,
+) -> anyhow::Result<SuccessResult> {
+    manager.unlink_secondary(device_id).await?;
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Unlinked device with id: {}", device_id),
+    })
+}
+
+pub(crate) async fn run_get_user_status(
     config_dir: &Path,
     active_account: Option<String>,
     recipients: Vec<String>,
     usernames: Vec<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<UserStatus>> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
+    core_get_user_status(&mut manager, recipients, usernames).await
+}
 
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_get_user_status<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipients: Vec<String>,
+    usernames: Vec<String>,
+) -> anyhow::Result<Vec<UserStatus>> {
+    let mut statuses = Vec::new();
     for rec in recipients {
         if let Ok(phone) = PhoneNumber::from_str(&rec) {
             match manager.discover_contacts_by_phone_number(vec![phone]).await {
                 Ok(discovered) => {
                     for (p, identity) in discovered {
-                        match identity {
-                            Some(id) => println!("Phone: {} is registered on Signal as Aci: {}", p, id.service_id_string()),
-                            None => println!("Phone: {} is NOT registered on Signal.", p),
-                        }
+                        statuses.push(UserStatus {
+                            recipient: p.to_string(),
+                            is_registered: identity.is_some(),
+                            aci: identity.map(|id| id.service_id_string()),
+                        });
                     }
                 }
-                Err(e) => eprintln!("Failed to check user status for phone {}: {:?}", rec, e),
+                Err(_) => statuses.push(UserStatus {
+                    recipient: rec,
+                    is_registered: false,
+                    aci: None,
+                }), // Or handle error
             }
         }
     }
 
     for user in usernames {
         match manager.lookup_username(&user).await {
-            Ok(Some(service_id)) => println!("Username: {} is registered on Signal as Aci: {}", user, service_id.service_id_string()),
-            Ok(None) => println!("Username: {} is NOT registered on Signal.", user),
-            Err(e) => eprintln!("Failed to lookup username {}: {:?}", user, e),
+            Ok(Some(service_id)) => statuses.push(UserStatus {
+                recipient: user,
+                is_registered: true,
+                aci: Some(service_id.service_id_string()),
+            }),
+            Ok(None) => statuses.push(UserStatus {
+                recipient: user,
+                is_registered: false,
+                aci: None,
+            }),
+            Err(_) => statuses.push(UserStatus {
+                recipient: user,
+                is_registered: false,
+                aci: None,
+            }),
         }
     }
-    Ok(())
+    Ok(statuses)
 }
 
-async fn run_send(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send(
     config_dir: &Path,
     active_account: Option<String>,
     note_to_self: bool,
@@ -516,7 +1013,7 @@ async fn run_send(
     message: Option<String>,
     message_from_stdin: bool,
     attachment: Vec<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SendResult> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
@@ -528,7 +1025,28 @@ async fn run_send(
         body_text = Some(buffer.trim().to_string());
     }
 
-    let attachments = upload_attachments(attachment.into_iter().map(PathBuf::from).collect(), &manager).await?;
+    core_send(
+        &mut manager,
+        note_to_self,
+        recipient,
+        group_id,
+        body_text,
+        attachment,
+    )
+    .await
+}
+
+#[tracing::instrument(skip(manager, body_text))]
+pub(crate) async fn core_send<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    note_to_self: bool,
+    recipient: Vec<String>,
+    group_id: Option<String>,
+    body_text: Option<String>,
+    attachment: Vec<String>,
+) -> anyhow::Result<SendResult> {
+    use tracing::warn;
+    let attachments = upload_attachments(attachment, manager).await?;
 
     let timestamp = std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -548,18 +1066,20 @@ async fn run_send(
             ..Default::default()
         };
         let content_body = ContentBody::DataMessage(data_message);
-        manager.send_message_to_group(&master_key, content_body, timestamp).await?;
-        println!("Message sent to group successfully.");
+        manager
+            .send_message_to_group(&master_key.clone(), content_body, timestamp)
+            .await?;
     } else {
         let mut resolved_recipients = Vec::new();
         if note_to_self {
-            resolved_recipients.push(ServiceId::Aci(manager.registration_data().service_ids.aci.into()));
+            resolved_recipients.push(ServiceId::Aci(
+                manager.registration_data().service_ids.aci.into(),
+            ));
         }
         for rec in recipient {
-            if let Ok(resolved) = resolve_recipient(&mut manager, &rec).await {
-                resolved_recipients.push(resolved);
-            } else {
-                eprintln!("Could not resolve recipient: {}", rec);
+            match resolve_recipient(manager, &rec).await {
+                Ok(resolved) => resolved_recipients.push(resolved),
+                Err(e) => warn!("Error resolving recipient {}: {:?}", rec, e),
             }
         }
 
@@ -575,216 +1095,349 @@ async fn run_send(
         let content_body = ContentBody::DataMessage(data_message);
 
         for r in resolved_recipients {
-            manager.send_message(r, content_body.clone(), timestamp).await?;
+            manager
+                .send_message(r, content_body.clone(), timestamp)
+                .await?;
         }
-        println!("Message sent successfully.");
     }
-    Ok(())
+    Ok(SendResult { timestamp })
 }
 
-async fn run_receive(
+pub(crate) async fn run_receive(
     config_dir: &Path,
     active_account: Option<String>,
     max_messages: Option<usize>,
-    output_mode: crate::cli::OutputMode,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Vec<ReceiveEnvelope>> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = Manager::load_registered(store).await?;
 
-    let is_json = match output_mode {
-        crate::cli::OutputMode::Json => true,
-        crate::cli::OutputMode::PlainText => false,
-    };
+    core_receive(&mut manager, max_messages).await
+}
 
-    let messages = manager.receive_messages().await.context("failed to receive messages")?;
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_receive<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    max_messages: Option<usize>,
+) -> anyhow::Result<Vec<ReceiveEnvelope>> {
+    use tracing::{debug, info};
+    info!("Querying server for new messages...");
+    let messages = manager
+        .receive_messages()
+        .await
+        .context("failed to receive messages")?;
     pin_mut!(messages);
 
     let mut count = 0;
+    let mut envelopes = Vec::new();
     while let Some(content) = messages.next().await {
         match content {
-            Received::QueueEmpty => {
-                if !is_json {
-                    println!("Queue empty.");
-                }
-                break;
-            }
-            Received::Contacts => {
-                if !is_json {
-                    println!("Contacts synchronised.");
-                }
-            }
+            Received::QueueEmpty => break,
+            Received::Contacts => {}
             Received::Content(content) => {
-                if is_json {
-                    let group_id = if let ContentBody::DataMessage(ref msg) = content.body {
-                        msg.group_v2.as_ref().and_then(|g| g.master_key.as_ref().map(|k| hex::encode(k)))
-                    } else {
-                        None
-                    };
-                    let message = if let ContentBody::DataMessage(ref msg) = content.body {
-                        msg.body.clone()
-                    } else {
-                        None
-                    };
-                    #[derive(Serialize)]
-                    struct JsonEnvelope {
-                        source: String,
-                        source_uuid: String,
-                        timestamp: u64,
-                        message: Option<String>,
-                        group_id: Option<String>,
-                    }
-                    let envelope = JsonEnvelope {
-                        source: content.metadata.sender.service_id_string(),
-                        source_uuid: content.metadata.sender.service_id_string(),
-                        timestamp: content.timestamp(),
-                        message,
-                        group_id,
-                    };
-                    if let Ok(json_val) = serde_json::to_string(&envelope) {
-                        println!("{}", json_val);
-                    }
+                debug!(
+                    "Processing received message from {}",
+                    content.metadata.sender.service_id_string()
+                );
+                let source_uuid = content.metadata.sender.service_id_string();
+                let timestamp = content.timestamp();
+
+                let data_message = if let ContentBody::DataMessage(dm) = content.body {
+                    Some(DataMessageEnvelope {
+                        message: dm.body,
+                        attachments: Some(
+                            dm.attachments
+                                .into_iter()
+                                .map(|a| AttachmentEnvelope {
+                                    id: a
+                                        .attachment_identifier
+                                        .map(|i| format!("{:?}", i))
+                                        .unwrap_or_default(),
+                                    content_type: a.content_type.unwrap_or_default(),
+                                    filename: a.file_name,
+                                })
+                                .collect(),
+                        ),
+                    })
                 } else {
-                    println!("Envelope from: {}", content.metadata.sender.service_id_string());
-                    println!("Timestamp: {}", content.timestamp());
-                    if let ContentBody::DataMessage(ref msg) = content.body {
-                        if let Some(ref body) = msg.body {
-                            println!("Message body: {}", body);
-                        }
-                    }
-                    println!("-------------------------------------------");
-                }
+                    None
+                };
+
+                envelopes.push(ReceiveEnvelope {
+                    source: None,
+                    source_uuid: Some(source_uuid),
+                    source_name: None,
+                    source_device: Some(content.metadata.sender_device.into()),
+                    timestamp,
+                    data_message,
+                });
 
                 count += 1;
-                if let Some(max) = max_messages {
-                    if count >= max {
-                        break;
-                    }
+                if let Some(max) = max_messages
+                    && count >= max
+                {
+                    break;
                 }
             }
         }
     }
-    Ok(())
+    Ok(envelopes)
 }
 
-async fn run_list_groups(
+pub(crate) async fn run_list_groups(
     config_dir: &Path,
     active_account: Option<String>,
     detailed: bool,
     group_ids: Vec<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<GroupList> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let manager = load_registered_and_receive(store).await?;
-    for group in manager.store().groups().await? {
-        if let Ok((key, g)) = group {
-            let hex_key = hex::encode(key);
-            if !group_ids.is_empty() && !group_ids.contains(&hex_key) {
-                continue;
-            }
-            if detailed {
-                println!("Group ID: {}", hex_key);
-                println!("Title: {}", g.title);
-                if let Some(ref desc) = g.description {
-                    println!("Description: {}", desc);
-                }
-                println!("Members count: {}", g.members.len());
-                println!("-------------------------------------------");
-            } else {
-                println!("{} - {}", hex_key, g.title);
-            }
-        }
-    }
-    Ok(())
+    let mut manager = load_registered_and_receive(store).await?;
+    core_list_groups(&mut manager, detailed, group_ids).await
 }
 
-async fn run_list_contacts(
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    detailed: bool,
+    group_ids: Vec<String>,
+) -> anyhow::Result<GroupList> {
+    let mut groups = Vec::new();
+    for (key, g) in manager.store().groups().await?.flatten() {
+        let hex_key = hex::encode(key);
+        if !group_ids.is_empty() && !group_ids.contains(&hex_key) {
+            continue;
+        }
+        groups.push(GroupInfo {
+            id: hex_key,
+            name: g.title,
+            description: g.description,
+            members_count: g.members.len(),
+        });
+    }
+    Ok(GroupList { groups, detailed })
+}
+
+pub(crate) async fn run_list_identities(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: Option<String>,
+) -> anyhow::Result<Vec<IdentityInfo>> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    // This command is currently limited by the underlying presage library
+    Err(SignalError::LibraryLimitation(
+        "listIdentities is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
+
+pub(crate) async fn run_trust(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: String,
+    _trust_level: String,
+) -> anyhow::Result<SuccessResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    // Manual trust management is currently handled automatically by presage
+    Err(SignalError::LibraryLimitation(
+        "Manual trust management is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
+
+pub(crate) async fn run_remove_contact(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: String,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_remove_contact(&mut manager, recipient).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_remove_contact<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: String,
+) -> anyhow::Result<SuccessResult> {
+    let _service_id = resolve_recipient(manager, &recipient).await?;
+    Err(SignalError::LibraryLimitation(
+        "removeContact is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
+
+pub(crate) async fn run_send_poll_create(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: Vec<String>,
+    _group_id: Option<String>,
+    _question: String,
+    _options: Vec<String>,
+    _multiple_answers: bool,
+) -> anyhow::Result<SendResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(SignalError::LibraryLimitation(
+        "Poll creation is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
+
+pub(crate) async fn run_send_poll_vote(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: Vec<String>,
+    _group_id: Option<String>,
+    _target_timestamp: i64,
+    _choices: Vec<i32>,
+) -> anyhow::Result<SendResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(
+        SignalError::LibraryLimitation("Poll voting is not yet supported by presage.".to_string())
+            .into(),
+    )
+}
+
+pub(crate) async fn run_send_poll_terminate(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: Vec<String>,
+    _group_id: Option<String>,
+    _target_timestamp: i64,
+) -> anyhow::Result<SendResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(SignalError::LibraryLimitation(
+        "Poll termination is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
+
+pub(crate) async fn run_block(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: Vec<String>,
+    _group_id: Vec<String>,
+) -> anyhow::Result<SuccessResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(
+        SignalError::LibraryLimitation("Blocking is not yet supported by presage.".to_string())
+            .into(),
+    )
+}
+
+pub(crate) async fn run_unblock(
+    _config_dir: &Path,
+    active_account: Option<String>,
+    _recipient: Vec<String>,
+    _group_id: Vec<String>,
+) -> anyhow::Result<SuccessResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(
+        SignalError::LibraryLimitation("Unblocking is not yet supported by presage.".to_string())
+            .into(),
+    )
+}
+
+pub(crate) async fn run_send_contacts(
+    _config_dir: &Path,
+    active_account: Option<String>,
+) -> anyhow::Result<SuccessResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(
+        SignalError::LibraryLimitation("sendContacts is not yet supported by presage.".to_string())
+            .into(),
+    )
+}
+
+pub(crate) async fn run_send_sync_request(
+    _config_dir: &Path,
+    active_account: Option<String>,
+) -> anyhow::Result<SuccessResult> {
+    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    Err(SignalError::LibraryLimitation(
+        "sendSyncRequest is not yet supported by presage.".to_string(),
+    )
+    .into())
+}
+
+pub(crate) async fn run_list_contacts(
     config_dir: &Path,
     active_account: Option<String>,
     name: Option<String>,
     detailed: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ContactList> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let manager = load_registered_and_receive(store).await?;
-    for contact in manager.store().contacts().await?.flatten() {
-        if let Some(ref n) = name {
-            if !contact.name.contains(n) {
-                continue;
-            }
-        }
-        if detailed {
-            println!("UUID: {}", contact.uuid);
-            println!("Phone: {:?}", contact.phone_number);
-            println!("Name: {}", contact.name);
-            println!("-------------------------------------------");
-        } else {
-            println!("{} / {:?} / {}", contact.uuid, contact.phone_number, contact.name);
-        }
-    }
-    Ok(())
+    let mut manager = load_registered_and_receive(store).await?;
+    core_list_contacts(&mut manager, name, detailed).await
 }
 
-async fn run_update_profile(
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_list_contacts<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    name: Option<String>,
+    detailed: bool,
+) -> anyhow::Result<ContactList> {
+    let mut contacts = Vec::new();
+    for contact in manager.store().contacts().await?.flatten() {
+        if let Some(ref n) = name
+            && !contact.name.contains(n)
+        {
+            continue;
+        }
+        contacts.push(ContactInfo {
+            uuid: contact.uuid.to_string(),
+            phone: contact.phone_number.map(|p| p.to_string()),
+            name: contact.name,
+        });
+    }
+    Ok(ContactList { contacts, detailed })
+}
+
+pub(crate) async fn run_update_profile(
     config_dir: &Path,
     active_account: Option<String>,
     given_name: Option<String>,
     family_name: Option<String>,
     about: Option<String>,
     about_emoji: Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ProfileInfo> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
-    if let Some(first_name) = given_name {
+    core_update_profile(&mut manager, given_name, family_name, about, about_emoji).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_update_profile<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    given_name: Option<String>,
+    family_name: Option<String>,
+    about: Option<String>,
+    about_emoji: Option<String>,
+) -> anyhow::Result<ProfileInfo> {
+    if let Some(first_name) = given_name.clone() {
         let name = presage::libsignal_service::profile_name::ProfileName {
             given_name: first_name,
-            family_name,
+            family_name: family_name.clone(),
         };
-        manager.update_profile(name, about, about_emoji).await?;
-        println!("Profile updated successfully.");
-        Ok(())
+        manager
+            .update_profile(name, about.clone(), about_emoji.clone())
+            .await?;
+        Ok(ProfileInfo {
+            given_name,
+            family_name,
+            about,
+            about_emoji,
+        })
     } else {
-        anyhow::bail!("given_name (--given-name) is required to update the profile.")
+        Err(SignalError::Internal(
+            "given_name (--given-name) is required to update the profile.".to_string(),
+        )
+        .into())
     }
-}
-
-fn find_local_accounts(config_dir: &Path) -> anyhow::Result<Vec<String>> {
-    let mut accounts = Vec::new();
-    if config_dir.exists() {
-        for entry in std::fs::read_dir(config_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == "db" {
-                        if let Some(file_stem) = path.file_stem() {
-                            let stem = file_stem.to_string_lossy().to_string();
-                            if stem.starts_with('+') {
-                                accounts.push(stem);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Ok(accounts)
-}
-
-async fn open_sqlite_store(config_dir: &Path, account: &str) -> anyhow::Result<SqliteStore> {
-    let db_path = config_dir.join(format!("{}.db", account));
-    if !db_path.exists() {
-        anyhow::bail!("Account database not found at {:?}. Please register or link first.", db_path);
-    }
-    let store = SqliteStore::open_with_passphrase(
-        db_path.to_str().unwrap(),
-        None,
-        OnNewIdentity::Trust,
-    )
-    .await?;
-    Ok(store)
 }
 
 async fn load_registered_and_receive<S: Store + Send>(
@@ -797,86 +1450,117 @@ async fn load_registered_and_receive<S: Store + Send>(
 }
 
 async fn receive_loop<S: Store>(mut manager: Manager<S, Registered>) {
-    if let Ok(messages) = manager.receive_messages().await {
-        pin_mut!(messages);
-        while let Some(_) = messages.next().await {}
+    use tracing::{debug, warn};
+    debug!("Starting background receive loop");
+    match manager.receive_messages().await {
+        Ok(messages) => {
+            pin_mut!(messages);
+            while let Some(content) = messages.next().await {
+                debug!("Received background message: {:?}", content);
+            }
+            debug!("Background receive loop finished (queue empty)");
+        }
+        Err(e) => {
+            warn!("Background receive loop failed: {:?}", e);
+        }
     }
 }
 
 fn parse_group_id(id_str: &str) -> anyhow::Result<[u8; 32]> {
-    if let Ok(bytes) = BASE64_STANDARD.decode(id_str) {
-        if bytes.len() == 32 {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
-            return Ok(key);
-        }
+    if let Ok(bytes) = BASE64_STANDARD.decode(id_str)
+        && bytes.len() == 32
+    {
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        return Ok(key);
     }
-    if let Ok(bytes) = hex::decode(id_str) {
-        if bytes.len() == 32 {
-            let mut key = [0u8; 32];
-            key.copy_from_slice(&bytes);
-            return Ok(key);
-        }
+    if let Ok(bytes) = hex::decode(id_str)
+        && bytes.len() == 32
+    {
+        let mut key = [0u8; 32];
+        key.copy_from_slice(&bytes);
+        return Ok(key);
     }
     anyhow::bail!("Invalid group ID. Must be 32-byte hex or base64 encoded string.")
 }
 
-async fn resolve_recipient<S: Store + Send>(
-    manager: &mut Manager<S, Registered>,
-    recipient: &str,
-) -> anyhow::Result<ServiceId> {
-    if let Ok(uuid) = uuid::Uuid::parse_str(recipient) {
-        return Ok(ServiceId::Aci(uuid.into()));
-    }
-    if recipient.starts_with('+') {
-        if let Ok(contacts) = manager.store().contacts().await {
-            for contact_res in contacts {
-                if let Ok(contact) = contact_res {
-                    if contact.phone_number.as_ref().map(|p| p.to_string()) == Some(recipient.to_string()) {
-                        return Ok(ServiceId::Aci(contact.uuid.into()));
-                    }
-                }
-            }
-        }
-        if let Ok(phone) = recipient.parse::<PhoneNumber>() {
-            if let Ok(discovered) = manager.discover_contacts_by_phone_number(vec![phone]).await {
-                if let Some((_, Some(identity))) = discovered.into_iter().next() {
-                    return Ok(identity);
-                }
-            }
-        }
-    }
-    anyhow::bail!("Could not resolve recipient: {}", recipient)
-}
-
 async fn upload_attachments<S: Store>(
-    attachment_filepath: Vec<PathBuf>,
+    attachment_filepath: Vec<String>,
     manager: &Manager<S, Registered>,
 ) -> anyhow::Result<Vec<presage::proto::AttachmentPointer>> {
     use mime_guess::mime::APPLICATION_OCTET_STREAM;
     use presage::libsignal_service::sender::AttachmentSpec;
 
     let mut attachment_specs = Vec::new();
-    for path in attachment_filepath {
-        let data = std::fs::read(&path)?;
-        attachment_specs.push((
-            AttachmentSpec {
-                content_type: mime_guess::from_path(&path)
-                    .first()
-                    .unwrap_or(APPLICATION_OCTET_STREAM)
-                    .to_string(),
-                length: data.len(),
-                file_name: path.file_name().map(|s| s.to_string_lossy().to_string()),
-                preview: None,
-                voice_note: None,
-                borderless: None,
-                width: None,
-                height: None,
-                caption: None,
-                blur_hash: None,
-            },
-            data,
-        ));
+    for path_or_uri in attachment_filepath {
+        if let Some(data_uri) = path_or_uri.strip_prefix("data:") {
+            // Handle Data URI: data:[<mediatype>][;base64],<data>
+            let (metadata, base64_data) = data_uri
+                .split_once(',')
+                .ok_or_else(|| anyhow!("Invalid data URI format"))?;
+
+            let mut parts = metadata.split(';');
+            let content_type = parts
+                .next()
+                .filter(|s| !s.is_empty())
+                .unwrap_or("application/octet-stream");
+
+            let mut is_base64 = false;
+            let mut file_name = None;
+            for part in parts {
+                if part == "base64" {
+                    is_base64 = true;
+                } else if let Some(name) = part.strip_prefix("filename=") {
+                    file_name = Some(name.to_string());
+                }
+            }
+
+            if !is_base64 {
+                anyhow::bail!("Only base64 encoded data URIs are supported.");
+            }
+
+            let data = BASE64_STANDARD
+                .decode(base64_data)
+                .map_err(|e| anyhow!("Failed to decode base64 in data URI: {:?}", e))?;
+
+            attachment_specs.push((
+                AttachmentSpec {
+                    content_type: content_type.to_string(),
+                    length: data.len(),
+                    file_name,
+                    preview: None,
+                    voice_note: None,
+                    borderless: None,
+                    width: None,
+                    height: None,
+                    caption: None,
+                    blur_hash: None,
+                },
+                data,
+            ));
+        } else {
+            // Handle local file path
+            let path = PathBuf::from(path_or_uri);
+            let data = std::fs::read(&path)?;
+            attachment_specs.push((
+                AttachmentSpec {
+                    content_type: mime_guess::from_path(&path)
+                        .first()
+                        .unwrap_or(APPLICATION_OCTET_STREAM)
+                        .to_string(),
+                    length: data.len(),
+                    file_name: path.file_name().map(|s| s.to_string_lossy().to_string()),
+                    preview: None,
+                    voice_note: None,
+                    borderless: None,
+                    width: None,
+                    height: None,
+                    caption: None,
+                    blur_hash: None,
+                },
+                data,
+            ));
+        }
     }
 
     if attachment_specs.is_empty() {
@@ -892,22 +1576,26 @@ async fn upload_attachments<S: Store>(
     Ok(attachments?)
 }
 
-async fn run_delete_local_account_data(
+pub(crate) async fn run_delete_local_account_data(
     config_dir: &std::path::Path,
     active_account: Option<String>,
     ignore_registered: bool,
 ) -> anyhow::Result<()> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let db_path = config_dir.join(format!("{}.db", account));
-    
+
     if !db_path.exists() {
         println!("No local data found for account: {}", account);
         return Ok(());
     }
 
     if !ignore_registered {
-        println!("Warning: Deleting local data for a registered account. This will NOT unregister the account from the Signal server.");
-        println!("If you want to unregister, use the 'unregister' command (currently not implemented).");
+        println!(
+            "Warning: Deleting local data for a registered account. This will NOT unregister the account from the Signal server."
+        );
+        println!(
+            "If you want to unregister, use the 'unregister' command (currently not implemented)."
+        );
     }
 
     std::fs::remove_file(&db_path)?;
@@ -915,17 +1603,19 @@ async fn run_delete_local_account_data(
     Ok(())
 }
 
-async fn run_unregister(
+pub(crate) async fn run_unregister(
     _config_dir: &std::path::Path,
     _active_account: Option<String>,
     _delete_account: bool,
 ) -> anyhow::Result<()> {
     println!("The 'unregister' command is not yet implemented in this Rust version of signal-cli.");
-    println!("Unregistering requires server-side communication not currently exposed by the underlying library.");
+    println!(
+        "Unregistering requires server-side communication not currently exposed by the underlying library."
+    );
     Ok(())
 }
 
-async fn run_set_pin(
+pub(crate) async fn run_set_pin(
     _config_dir: &std::path::Path,
     _active_account: Option<String>,
     _pin: String,
@@ -934,7 +1624,7 @@ async fn run_set_pin(
     Ok(())
 }
 
-async fn run_remove_pin(
+pub(crate) async fn run_remove_pin(
     _config_dir: &std::path::Path,
     _active_account: Option<String>,
 ) -> anyhow::Result<()> {
@@ -942,17 +1632,26 @@ async fn run_remove_pin(
     Ok(())
 }
 
-async fn run_get_avatar(
+pub(crate) async fn run_get_avatar(
     config_dir: &Path,
     active_account: Option<String>,
     contact: Option<String>,
     profile: Option<String>,
     group_id: Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<MediaData> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = Manager::load_registered(store).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_get_avatar(&mut manager, contact, profile, group_id).await
+}
 
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_get_avatar<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    contact: Option<String>,
+    profile: Option<String>,
+    group_id: Option<String>,
+) -> anyhow::Result<MediaData> {
     let avatar_bytes = if let Some(gid) = group_id {
         let master_key = parse_group_id(&gid)?;
         let group = manager
@@ -973,7 +1672,9 @@ async fn run_get_avatar(
             ServiceId::Aci(u.into())
         } else if ident.starts_with('+') {
             let phone = PhoneNumber::from_str(&ident)?;
-            let discovered = manager.discover_contacts_by_phone_number(vec![phone]).await?;
+            let discovered = manager
+                .discover_contacts_by_phone_number(vec![phone])
+                .await?;
             if let Some((_, Some(id))) = discovered.into_iter().next() {
                 id
             } else {
@@ -994,43 +1695,58 @@ async fn run_get_avatar(
             ServiceId::Pni(u) => Uuid::from(u),
         };
 
-        let profile_key_bytes: [u8; 32] = contact_details.profile_key.as_slice().try_into()
+        let profile_key_bytes: [u8; 32] = contact_details
+            .profile_key
+            .as_slice()
+            .try_into()
             .map_err(|_| anyhow!("Invalid profile key length for contact."))?;
         let profile_key = ProfileKey::create(profile_key_bytes);
 
-        manager.retrieve_profile_avatar_by_uuid(uuid, profile_key).await?
+        manager
+            .retrieve_profile_avatar_by_uuid(uuid, profile_key)
+            .await?
     } else {
         anyhow::bail!("Either --contact, --profile, or --group-id must be specified.");
     };
 
     if let Some(bytes) = avatar_bytes {
-        std::io::stdout().write_all(&bytes)?;
-        std::io::stdout().flush()?;
+        Ok(MediaData {
+            data: BASE64_STANDARD.encode(bytes),
+        })
     } else {
         anyhow::bail!("No avatar found.");
     }
-
-    Ok(())
 }
 
-async fn run_get_attachment(
+pub(crate) async fn run_get_attachment(
     config_dir: &Path,
     active_account: Option<String>,
     id: String,
     recipient: Option<String>,
     group_id: Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<MediaData> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = Manager::load_registered(store).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_get_attachment(&mut manager, id, recipient, group_id).await
+}
 
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_get_attachment<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    id: String,
+    recipient: Option<String>,
+    group_id: Option<String>,
+) -> anyhow::Result<MediaData> {
     let thread = if let Some(gid) = group_id {
         Thread::Group(parse_group_id(&gid)?)
     } else if let Some(rec) = recipient {
-        let service_id = resolve_recipient(&mut manager, &rec).await?;
+        let service_id = resolve_recipient(manager, &rec).await?;
         Thread::Contact(service_id)
     } else {
-        anyhow::bail!("Either --recipient or --group-id must be specified to locate the attachment.");
+        anyhow::bail!(
+            "Either --recipient or --group-id must be specified to locate the attachment."
+        );
     };
 
     let messages = manager.store().messages(&thread, ..).await?;
@@ -1055,16 +1771,17 @@ async fn run_get_attachment(
         }
     }
 
-    let pointer = attachment_pointer.ok_or_else(|| anyhow!("Attachment with ID {} not found in thread.", id))?;
+    let pointer = attachment_pointer
+        .ok_or_else(|| anyhow!("Attachment with ID {} not found in thread.", id))?;
     let bytes = manager.get_attachment(&pointer).await?;
 
-    std::io::stdout().write_all(&bytes)?;
-    std::io::stdout().flush()?;
-
-    Ok(())
+    Ok(MediaData {
+        data: BASE64_STANDARD.encode(bytes),
+    })
 }
 
-async fn run_send_reaction(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_reaction(
     config_dir: &Path,
     active_account: Option<String>,
     recipient: Vec<String>,
@@ -1074,12 +1791,37 @@ async fn run_send_reaction(
     target_author: String,
     target_timestamp: i64,
     remove: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
-    let target_author_sid = resolve_recipient(&mut manager, &target_author).await?;
+    core_send_reaction(
+        &mut manager,
+        recipient,
+        group_id,
+        note_to_self,
+        emoji,
+        target_author,
+        target_timestamp,
+        remove,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_send_reaction<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: Vec<String>,
+    group_id: Option<String>,
+    note_to_self: bool,
+    emoji: String,
+    target_author: String,
+    target_timestamp: i64,
+    remove: bool,
+) -> anyhow::Result<SuccessResult> {
+    let target_author_sid = resolve_recipient(manager, &target_author).await?;
     let target_author_aci = match target_author_sid {
         ServiceId::Aci(u) => Uuid::from(u),
         ServiceId::Pni(u) => Uuid::from(u),
@@ -1105,37 +1847,55 @@ async fn run_send_reaction(
 
     if let Some(gid) = group_id {
         let master_key = parse_group_id(&gid)?;
-        manager.send_message_to_group(&master_key, content_body, timestamp).await?;
+        manager
+            .send_message_to_group(&master_key, content_body, timestamp)
+            .await?;
     } else {
         let mut recipients = Vec::new();
         if note_to_self {
-            recipients.push(ServiceId::Aci(manager.registration_data().service_ids.aci.into()));
+            recipients.push(ServiceId::Aci(
+                manager.registration_data().service_ids.aci.into(),
+            ));
         }
         for rec in recipient {
-            recipients.push(resolve_recipient(&mut manager, &rec).await?);
+            recipients.push(resolve_recipient(manager, &rec).await?);
         }
         for r in recipients {
-            manager.send_message(r, content_body.clone(), timestamp).await?;
+            manager
+                .send_message(r, content_body.clone(), timestamp)
+                .await?;
         }
     }
 
-    println!("Reaction sent successfully.");
-    Ok(())
+    Ok(SuccessResult {
+        success: true,
+        message: "Reaction sent successfully.".to_string(),
+    })
 }
 
-async fn run_send_receipt(
+pub(crate) async fn run_send_receipt(
     config_dir: &Path,
     active_account: Option<String>,
     recipient: String,
     target_timestamp: i64,
     r#type: Option<String>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
-    let service_id = resolve_recipient(&mut manager, &recipient).await?;
-    
+    core_send_receipt(&mut manager, recipient, target_timestamp, r#type).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_send_receipt<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: String,
+    target_timestamp: i64,
+    r#type: Option<String>,
+) -> anyhow::Result<SuccessResult> {
+    let service_id = resolve_recipient(manager, &recipient).await?;
+
     let receipt_type = match r#type.as_deref() {
         Some("read") => receipt_message::Type::Read,
         Some("viewed") => receipt_message::Type::Viewed,
@@ -1152,23 +1912,37 @@ async fn run_send_receipt(
         .duration_since(UNIX_EPOCH)?
         .as_millis() as u64;
 
-    manager.send_message(service_id, content_body, timestamp).await?;
+    manager
+        .send_message(service_id, content_body, timestamp)
+        .await?;
 
-    println!("Receipt sent successfully.");
-    Ok(())
+    Ok(SuccessResult {
+        success: true,
+        message: "Receipt sent successfully.".to_string(),
+    })
 }
 
-async fn run_send_typing(
+pub(crate) async fn run_send_typing(
     config_dir: &Path,
     active_account: Option<String>,
     recipient: Vec<String>,
     group_id: Option<String>,
     stop: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
+    core_send_typing(&mut manager, recipient, group_id, stop).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_send_typing<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: Vec<String>,
+    group_id: Option<String>,
+    stop: bool,
+) -> anyhow::Result<SuccessResult> {
     let action = if stop {
         typing_message::Action::Stopped
     } else {
@@ -1190,20 +1964,26 @@ async fn run_send_typing(
         let mut msg = typing_message.clone();
         msg.group_id = Some(master_key.to_vec());
         let content_body = ContentBody::TypingMessage(msg);
-        manager.send_message_to_group(&master_key, content_body, timestamp).await?;
+        manager
+            .send_message_to_group(&master_key, content_body, timestamp)
+            .await?;
     } else {
         let content_body = ContentBody::TypingMessage(typing_message);
         for rec in recipient {
-            let service_id = resolve_recipient(&mut manager, &rec).await?;
-            manager.send_message(service_id, content_body.clone(), timestamp).await?;
+            let service_id = resolve_recipient(manager, &rec).await?;
+            manager
+                .send_message(service_id, content_body.clone(), timestamp)
+                .await?;
         }
     }
 
-    println!("Typing indicator sent successfully.");
-    Ok(())
+    Ok(SuccessResult {
+        success: true,
+        message: "Typing indicator sent successfully.".to_string(),
+    })
 }
 
-async fn run_join_group(
+pub(crate) async fn run_join_group(
     _config_dir: &Path,
     _active_account: Option<String>,
     _uri: String,
@@ -1213,7 +1993,8 @@ async fn run_join_group(
     Ok(())
 }
 
-async fn run_update_group(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_update_group(
     _config_dir: &Path,
     _active_account: Option<String>,
     _group_id: Option<String>,
@@ -1236,11 +2017,13 @@ async fn run_update_group(
     _member_label: Option<String>,
 ) -> anyhow::Result<()> {
     println!("The 'updateGroup' command is not yet implemented.");
-    println!("Creating or modifying groups requires Group V2 operations not yet exposed by the underlying library.");
+    println!(
+        "Creating or modifying groups requires Group V2 operations not yet exposed by the underlying library."
+    );
     Ok(())
 }
 
-async fn run_quit_group(
+pub(crate) async fn run_quit_group(
     _config_dir: &Path,
     _active_account: Option<String>,
     _group_id: String,
@@ -1248,4 +2031,148 @@ async fn run_quit_group(
 ) -> anyhow::Result<()> {
     println!("The 'quitGroup' command is not yet implemented.");
     Ok(())
+}
+
+pub(crate) async fn run_remote_delete(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: Vec<String>,
+    group_id: Option<String>,
+    _username: Option<String>,
+    target_timestamp: i64,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_remote_delete(&mut manager, recipient, group_id, target_timestamp).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_remote_delete<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: Vec<String>,
+    group_id: Option<String>,
+    target_timestamp: i64,
+) -> anyhow::Result<SuccessResult> {
+    let delete = data_message::Delete {
+        target_sent_timestamp: Some(target_timestamp as u64),
+    };
+
+    let data_message = DataMessage {
+        delete: Some(delete),
+        ..Default::default()
+    };
+    let content_body = ContentBody::DataMessage(data_message);
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_millis() as u64;
+
+    if let Some(gid) = group_id {
+        let master_key = parse_group_id(&gid)?;
+        manager
+            .send_message_to_group(&master_key, content_body, timestamp)
+            .await?;
+    } else {
+        for rec in recipient {
+            let service_id = resolve_recipient(manager, &rec).await?;
+            manager
+                .send_message(service_id, content_body.clone(), timestamp)
+                .await?;
+        }
+    }
+
+    Ok(SuccessResult {
+        success: true,
+        message: "Remote delete sent successfully.".to_string(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_update_contact(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: String,
+    given_name: Option<String>,
+    family_name: Option<String>,
+    _nick_given_name: Option<String>,
+    _nick_family_name: Option<String>,
+    _note: Option<String>,
+    expiration: Option<i64>,
+    phone_number: Option<String>,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+
+    core_update_contact(
+        &mut manager,
+        recipient,
+        given_name,
+        family_name,
+        expiration,
+        phone_number,
+    )
+    .await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_update_contact<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: String,
+    given_name: Option<String>,
+    family_name: Option<String>,
+    expiration: Option<i64>,
+    phone_number: Option<String>,
+) -> anyhow::Result<SuccessResult> {
+    let mut store = manager.store().clone();
+    let uuid = if let Ok(u) = Uuid::parse_str(&recipient) {
+        u
+    } else {
+        let service_id = resolve_recipient(manager, &recipient).await?;
+        match service_id {
+            ServiceId::Aci(u) => Uuid::from(u),
+            ServiceId::Pni(u) => Uuid::from(u),
+        }
+    };
+
+    let mut contact = match store.contact_by_id(&ServiceId::Aci(uuid.into())).await? {
+        Some(c) => c,
+        None => {
+            Contact {
+                uuid,
+                phone_number: None,
+                name: String::new(),
+                verified: Default::default(),
+                profile_key: vec![0u8; 32], // Placeholder
+                expire_timer: 0,
+                expire_timer_version: 0,
+                inbox_position: 0,
+                avatar: None,
+            }
+        }
+    };
+
+    if let Some(name) = given_name {
+        contact.name = name;
+        if let Some(f_name) = family_name {
+            contact.name.push(' ');
+            contact.name.push_str(&f_name);
+        }
+    }
+
+    if let Some(e) = expiration {
+        contact.expire_timer = e as u32;
+    }
+
+    if let Some(number) = phone_number {
+        contact.phone_number = Some(PhoneNumber::from_str(&number)?);
+    }
+
+    store.save_contact(&contact).await?;
+
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Contact {} updated successfully.", recipient),
+    })
 }

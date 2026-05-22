@@ -100,6 +100,13 @@ Disable message send log (for resending messages that recipient couldn't decrypt
 
 == Commands
 
+[NOTE]
+====
+This version of *signal-cli* is a Rust port. While it aims for CLI compatibility, several commands
+are currently implemented as architectural stubs due to pending high-level API support in the
+underlying `presage` library. These commands will return an informative error message.
+====
+
 === register
 
 Register a phone number with SMS or voice verification.

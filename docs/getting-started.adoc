@@ -1,0 +1,128 @@
+= Getting Started with signal-cli (Rust)
+:toc:
+:sectnums:
+
+This guide will walk you through setting up and using the Rust port of `signal-cli` for the first time.
+
+== 1. Installation
+
+Ensure you have the Rust toolchain installed, then clone the repository and build:
+
+[source,bash]
+----
+git clone <repository_url>
+cd signal-cli
+make install
+----
+
+This installs the binary to `~/.local/bin/signal-cli`.
+
+== 2. Setting up an Account
+
+You can either register a new phone number or link this CLI as a secondary device to your existing Signal account on your phone.
+
+=== Option A: Linking an Existing Account (Recommended)
+
+This is the easiest way to get started without needing a dedicated phone number.
+
+1. Generate a link URI:
++
+[source,bash]
+----
+signal-cli link
+----
++
+This will output a URI like `sgnl://linkdevice?uuid=...&pub_key=...`.
+
+2. Convert the URI to a QR code (using a tool like `qrencode` or an online generator) and scan it with the Signal app on your phone (Settings -> Linked Devices -> Link New Device).
++
+Alternatively, if your CLI is on the same machine as your Signal Desktop app, you can sometimes click the link directly.
+
+3. Once linked, the CLI will automatically create a local database for your account.
+
+=== Option B: Registering a New Number
+
+If you have a dedicated number (e.g., a VoIP number or SIM card) that can receive SMS:
+
+[source,bash]
+----
+signal-cli -a +1234567890 register
+----
+
+*Note on Captchas:* Signal often requires a captcha for registration. If you receive a rate-limit error, you will need to obtain a captcha token from `https://signalcaptchas.org/registration/generate.html` and pass it using `--captcha <token>`.
+
+Once you receive the SMS code, verify it:
+
+[source,bash]
+----
+signal-cli -a +1234567890 verify 123456
+----
+
+== 3. Sending Your First Message
+
+If you only have one account configured, you can omit the `-a` flag. Otherwise, always specify the account you are sending from.
+
+[source,bash]
+----
+signal-cli -a +1234567890 send -m "Hello World!" +0987654321
+----
+
+You can also send attachments:
+[source,bash]
+----
+signal-cli -a +1234567890 send -m "Look at this picture" -a /path/to/image.jpg +0987654321
+----
+
+== 4. Receiving Messages
+
+To check for new messages, use the `receive` command. This will fetch all pending messages from the server and print them to the console.
+
+[source,bash]
+----
+signal-cli -a +1234567890 receive
+----
+
+If you want structured output for parsing in a script, use JSON mode:
+
+[source,bash]
+----
+signal-cli -a +1234567890 --output json receive
+----
+
+== 5. Using the JSON-RPC Daemon
+
+For continuous integration with other scripts or bots, you should use the daemon mode.
+
+1. Start the daemon listening on a UNIX socket:
++
+[source,bash]
+----
+signal-cli -a +1234567890 daemon --socket /tmp/signal.sock
+----
+
+2. Send a request to the socket (using `socat` or `nc`):
++
+[source,bash]
+----
+echo '{"jsonrpc":"2.0","method":"send","params":{"recipient":["+0987654321"],"message":"Hello from daemon!"},"id":1}' | socat - UNIX-CONNECT:/tmp/signal.sock
+----
+
+The daemon will also continuously broadcast incoming messages to all connected clients.
+
+== 6. Verifying with the Testing Tool
+
+A generalized Python testing tool is included in the root of the repository to help you verify daemon connectivity and automation logic.
+
+[source,bash]
+----
+# Connect to a running daemon via UNIX socket and echo all incoming messages
+python3 signal-test-tool.py --socket /tmp/signal.sock --auto-reply
+----
+
+This tool can also be used to test the JSON-RPC interface directly without a socket:
+
+[source,bash]
+----
+# Spawns a signal-cli subprocess and acts as a responder
+python3 signal-test-tool.py -a +1234567890 --auto-reply
+----

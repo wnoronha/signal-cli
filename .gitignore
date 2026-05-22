@@ -3,3 +3,6 @@
 # Added by cargo
 
 /target
+responder.py
+*.log
+*.pid

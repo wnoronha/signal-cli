@@ -1,0 +1,32 @@
+= Frequently Asked Questions (FAQ)
+:toc:
+
+== Registration and Linking
+
+=== Why do I need a captcha token for registration?
+Signal requires captchas to prevent automated bot registrations. When you register a new number, if the server returns a rate-limit error, you must solve a captcha at `https://signalcaptchas.org/registration/generate.html` and pass the resulting token to the `register` command.
+
+=== Can I link multiple devices to the same account?
+Yes, Signal allows you to link multiple secondary devices (like this CLI, Signal Desktop, or an iPad) to your primary mobile phone account. Use the `link` command to start this process.
+
+== Messaging
+
+=== Why can't I send a message using a phone number?
+If a recipient has enabled certain privacy settings, their phone number might not be discoverable. In these cases, you must use their Signal UUID instead. You can find their UUID if they message you first, or by using `getUserStatus` if they have a public username.
+
+=== How do I send a message to myself?
+Use the `--note-to-self` flag with the `send` command. This will send the message to your own account, appearing in your "Note to Self" thread.
+
+== Troubleshooting
+
+=== I see "Library Limitation" errors for some commands. Why?
+This project is a Rust port that relies on the `presage` library. Some advanced features (like full Group V2 administration or account migration) are not yet exposed by the library's high-level API. These are implemented as architectural stubs and will be fully enabled as the library matures.
+
+=== How do I get more detailed logs?
+Run any command with the `-v` or `--verbose` flag. This will enable debug-level logging, which includes detailed information from the underlying Signal protocol library.
+
+=== Where is my account data stored?
+By default, account databases (SQLite) are stored in `~/.local/share/signal-cli/`. You can change this location using the `--config` global flag.
+
+=== Is there a way to test my bot or integration without writing code?
+Yes! Use the included `signal-test-tool.py` script. It can connect to a running daemon or spawn the CLI directly, allowing you to manually send JSON-RPC requests or automatically reply to incoming messages to verify your setup.

@@ -2,21 +2,32 @@
 name = "signal-cli"
 version = "0.1.0"
 edition = "2024"
+description = "A Rust implementation of signal-cli, a command-line interface for Signal."
+license = "AGPL-3.0-only"
+keywords = ["signal", "messenger", "cli", "presage"]
+categories = ["command-line-utilities", "communication"]
 
 [dependencies]
 presage = { git = "https://github.com/whisperfish/presage", features = ["cdsi"] }
-presage-store-sqlite = { git = "https://github.com/whisperfish/presage" }
+presage-store-sqlite = { git = "https://github.com/whisperfish/presage", default-features = false }
 tokio = { version = "1.35", features = ["full"] }
 clap = { version = "4.4", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 anyhow = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 hex = "0.4"
 mime_guess = "2.0"
 url = "2.5"
 futures = "0.3"
 base64 = "0.22"
 uuid = { version = "1.7", features = ["v4", "serde"] }
+libsqlite3-sys = { version = "0.36.0", features = ["bundled"] }
+
+[dev-dependencies]
+tempfile = "3.9"
 
 [patch.crates-io]
 curve25519-dalek = { git = "https://github.com/signalapp/curve25519-dalek", tag = "signal-curve25519-4.1.3" }
