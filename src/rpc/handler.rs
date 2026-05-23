@@ -54,8 +54,7 @@ pub async fn handle_request<S: Store + Send + 'static>(
                 id,
             };
         }
-        };
-
+    };
 
     match result {
         Ok(res) => JsonRpcResponse {

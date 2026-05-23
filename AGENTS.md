@@ -30,3 +30,9 @@ Use `utils::open_sqlite_store` to access these databases.
 ## Common Issues & Troubleshooting
 - **Recipient Resolution Failure:** If a phone number cannot be resolved (often due to Signal privacy settings), use the recipient's UUID. 
 - **Manual Contact Linking:** Use `updateContact <UUID> --phone-number <NUMBER>` to create a local mapping, allowing subsequent commands to use the phone number directly.
+
+## CI & Quality
+- **Local Verification:** NEVER push changes without verifying they pass CI locally. Run the following command:
+  ```bash
+  cargo fmt --check && cargo clippy -- -D warnings && cargo test
+  ```

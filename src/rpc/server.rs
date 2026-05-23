@@ -7,10 +7,10 @@ use crate::rpc::handler;
 use crate::rpc::models::*;
 use crate::utils;
 use axum::{
+    Json, Router,
     extract::State,
     response::sse::{Event, Sse},
     routing::{get, post},
-    Json, Router,
 };
 use futures::{StreamExt as _, pin_mut, stream::Stream};
 use presage::Manager;
@@ -54,7 +54,7 @@ async fn handle_rpc_post(
                         result: None,
                         error: Some(JsonRpcError {
                             code: -32600,
-                            message: format!("method field must be set"), // Simplified message to match official behavior
+                            message: "method field must be set".to_string(), // Simplified message to match official behavior
                             data: None,
                         }),
                         id: serde_json::Value::Null,
@@ -295,7 +295,10 @@ pub async fn run_json_rpc(
             // No messages stream, just handle RPC
             while let Some(rpc_msg) = rpc_rx.recv().await {
                 match rpc_msg {
-                    RpcRequestMessage::HandleRequest { request, response_tx } => {
+                    RpcRequestMessage::HandleRequest {
+                        request,
+                        response_tx,
+                    } => {
                         let mut m = manager_clone.lock().await;
                         let response = handler::handle_request(request, &mut *m).await;
                         let _ = response_tx.send(response);
@@ -317,10 +320,7 @@ pub async fn run_json_rpc(
             .await?;
         }
         Command::Daemon {
-            socket,
-            tcp,
-            http,
-            ..
+            socket, tcp, http, ..
         } => {
             if let Some(path) = socket {
                 info!("Starting JSON-RPC on unix socket: {}", path);
