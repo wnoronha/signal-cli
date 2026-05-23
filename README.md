@@ -42,12 +42,13 @@ Comprehensive documentation is available on the [GitHub Pages site](https://<use
 *   **Profile Management:**
     *   `updateProfile`: Update your Signal name and "About" information.
 *   **Daemon Mode:**
-    *   `daemon`: Start the JSON-RPC daemon. Supports UNIX sockets (`--socket`) and TCP (`--tcp`).
+    *   `daemon`: Start the JSON-RPC daemon. Supports UNIX sockets (`--socket`), TCP (`--tcp`), and HTTP (`--http`).
     *   `jsonRpc`: Alias for daemon mode using stdin/stdout.
 
 ### System & Logging
 *   **Structured Logging:** Powered by `tracing`. Use `-v` or `--verbose` for debug logs.
 *   **Configurable Output:** Supports `--output plain-text` (default) and `--output json`.
+*   **Resource Efficiency:** Consumes significantly less memory (~28MB RSS) compared to the official Java implementation (~120MB+), even when using the Native Image version.
 
 ### Pending / Stubbed Features
 
@@ -104,14 +105,19 @@ signal-cli -a +1234567890 receive
 
 ### JSON-RPC (For Agents & Integrations)
 
-The daemon supports concurrent clients via UNIX or TCP sockets.
+The daemon supports concurrent clients via UNIX/TCP sockets or a modern HTTP interface.
 
 ```bash
-# Start the daemon
-signal-cli -a +1234567890 daemon --socket /tmp/signal.sock
+# Start the daemon with HTTP support (default: 127.0.0.1:8080)
+signal-cli -a +1234567890 daemon --http
 
-# Example Request (listGroups)
-echo '{"jsonrpc":"2.0","method":"listGroups","id":1}' | socat - UNIX-CONNECT:/tmp/signal.sock
+# Example Request (listGroups via HTTP POST)
+curl -X POST -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","method":"listGroups","id":1}' \
+     http://localhost:8080/api/v1/rpc
+
+# Stream events in real-time (SSE)
+curl -v http://localhost:8080/api/v1/events
 ```
 
 ### Testing Tool

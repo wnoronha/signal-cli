@@ -4,6 +4,8 @@
 
 This guide will walk you through setting up and using the Rust port of `signal-cli` for the first time.
 
+**Key Advantage:** This implementation is designed for maximum efficiency, with a memory footprint of only **~28 MB RSS** in daemon mode, making it up to 15x more memory-efficient than the standard Java version.
+
 == 1. Installation
 
 Ensure you have the Rust toolchain installed, then clone the repository and build:

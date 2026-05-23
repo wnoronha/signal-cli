@@ -918,13 +918,25 @@ pub enum Command {
 
     #[clap(name = "daemon", about = "Run in daemon mode with JSON-RPC or dbus")]
     Daemon {
-        #[clap(long = "socket")]
+        #[clap(
+            long = "socket",
+            num_args = 0..=1,
+            default_missing_value = "/tmp/signal-cli.sock"
+        )]
         socket: Option<String>,
 
-        #[clap(long = "tcp")]
+        #[clap(
+            long = "tcp",
+            num_args = 0..=1,
+            default_missing_value = "127.0.0.1:8080"
+        )]
         tcp: Option<String>,
 
-        #[clap(long = "http")]
+        #[clap(
+            long = "http",
+            num_args = 0..=1,
+            default_missing_value = "127.0.0.1:8080"
+        )]
         http: Option<String>,
 
         #[clap(long = "dbus")]

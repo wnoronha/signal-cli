@@ -42,8 +42,20 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "uploadStickerPack" => handle_upload_sticker_pack(request.params, manager).await,
         "getAttachment" => handle_get_attachment(request.params, manager).await,
         "getAvatar" => handle_get_avatar(request.params, manager).await,
-        _ => Err(anyhow!("Method not found: {}", request.method)),
-    };
+        _ => {
+            return JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: None,
+                error: Some(JsonRpcError {
+                    code: -32601,
+                    message: "Method not implemented".to_string(),
+                    data: None,
+                }),
+                id,
+            };
+        }
+        };
+
 
     match result {
         Ok(res) => JsonRpcResponse {

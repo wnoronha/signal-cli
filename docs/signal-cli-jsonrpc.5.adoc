@@ -28,9 +28,9 @@ This is intended to make it easier to embed signal-cli in other applications.
 
   `signal-cli -a _ACCOUNT_ jsonRpc` or for multi-account mode `signal-cli jsonRpc`
 
-- `daemon` command provides a UNIX or TCP socket endpoint and can handle requests from multiple clients. (Note: HTTP and D-Bus interfaces are currently not implemented in this port).
+- `daemon` command provides a UNIX, TCP or HTTP endpoint and can handle requests from multiple clients.
 
-  `signal-cli -a _ACCOUNT_ daemon --socket` or for multi-account mode `signal-cli daemon --socket`
+  `signal-cli -a _ACCOUNT_ daemon --http` or for multi-account mode `signal-cli daemon --http`
 
 With `--http` signal-cli exposes three endpoints;
 

@@ -269,7 +269,27 @@ pub struct ReceiveEnvelope {
     pub source_name: Option<String>,
     pub source_device: Option<u32>,
     pub timestamp: u64,
+    pub server_received_timestamp: Option<u64>,
+    pub server_delivered_timestamp: Option<u64>,
     pub data_message: Option<DataMessageEnvelope>,
+    pub typing_message: Option<TypingMessageEnvelope>,
+    pub call_message: Option<CallMessageEnvelope>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TypingMessageEnvelope {
+    pub action: String,
+    pub timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CallMessageEnvelope {
+    pub offer_message: Option<serde_json::Value>,
+    pub ice_update_messages: Option<Vec<serde_json::Value>>,
+    pub hangup_message: Option<serde_json::Value>,
+    pub busy_message: Option<serde_json::Value>,
 }
 
 impl Render for Vec<ReceiveEnvelope> {
@@ -311,6 +331,28 @@ impl Render for Vec<ReceiveEnvelope> {
 pub struct DataMessageEnvelope {
     pub message: Option<String>,
     pub attachments: Option<Vec<AttachmentEnvelope>>,
+    pub sticker: Option<StickerEnvelope>,
+    pub reaction: Option<ReactionEnvelope>,
+    pub expires_in_seconds: u32,
+    pub is_expiration_update: bool,
+    pub view_once: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct StickerEnvelope {
+    pub pack_id: String,
+    pub sticker_id: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactionEnvelope {
+    pub emoji: String,
+    pub target_author: Option<String>,
+    pub target_author_uuid: Option<String>,
+    pub target_sent_timestamp: u64,
+    pub is_remove: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -319,4 +361,9 @@ pub struct AttachmentEnvelope {
     pub id: String,
     pub content_type: String,
     pub filename: Option<String>,
+    pub size: Option<u64>,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub caption: Option<String>,
+    pub upload_timestamp: Option<u64>,
 }

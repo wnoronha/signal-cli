@@ -25,6 +25,8 @@ futures = "0.3"
 base64 = "0.22"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 libsqlite3-sys = { version = "0.36.0", features = ["bundled"] }
+axum = { version = "0.8.9", features = ["macros"] }
+tokio-stream = { version = "0.1.18", features = ["sync"] }
 
 [dev-dependencies]
 tempfile = "3.9"

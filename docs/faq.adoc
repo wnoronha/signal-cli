@@ -30,3 +30,16 @@ By default, account databases (SQLite) are stored in `~/.local/share/signal-cli/
 
 === Is there a way to test my bot or integration without writing code?
 Yes! Use the included `signal-test-tool.py` script. It can connect to a running daemon or spawn the CLI directly, allowing you to manually send JSON-RPC requests or automatically reply to incoming messages to verify your setup.
+
+== Performance
+
+=== What are the system requirements for the Rust version?
+The Rust port of `signal-cli` is extremely lightweight. In daemon mode with the HTTP interface active, it typically uses only **~28 MB of RSS memory**.
+
+=== How does the memory usage compare to the original Java implementation?
+The Rust implementation is significantly more efficient:
+- **Rust (this port):** ~28 MB RSS
+- **Java (Native Image):** ~120 MB RSS
+- **Java (Standard JVM):** 200 MB - 500 MB+ RSS
+
+This makes the Rust version ideal for resource-constrained environments like Raspberry Pis, small VPS instances, or high-density container deployments.

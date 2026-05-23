@@ -1155,9 +1155,19 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
                                         .unwrap_or_default(),
                                     content_type: a.content_type.unwrap_or_default(),
                                     filename: a.file_name,
+                                    size: a.size.map(|s| s as u64),
+                                    width: a.width,
+                                    height: a.height,
+                                    caption: a.caption,
+                                    upload_timestamp: a.upload_timestamp,
                                 })
                                 .collect(),
                         ),
+                        sticker: None,
+                        reaction: None,
+                        expires_in_seconds: dm.expire_timer.unwrap_or_default(),
+                        is_expiration_update: false,
+                        view_once: dm.is_view_once.unwrap_or_default(),
                     })
                 } else {
                     None
@@ -1169,7 +1179,11 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
                     source_name: None,
                     source_device: Some(content.metadata.sender_device.into()),
                     timestamp,
+                    server_received_timestamp: None,
+                    server_delivered_timestamp: None,
                     data_message,
+                    typing_message: None,
+                    call_message: None,
                 });
 
                 count += 1;
