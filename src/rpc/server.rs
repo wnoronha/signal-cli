@@ -278,6 +278,9 @@ pub async fn run_json_rpc(
                             if let Ok(json) = serde_json::to_string(&notification) {
                                 let _ = n_tx.send(json);
                             }
+                        } else if received_res.is_none() {
+                            warn!("Message stream ended.");
+                            break;
                         }
                     }
                     Some(rpc_msg) = rpc_rx.recv() => {
