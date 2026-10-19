@@ -179,13 +179,6 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
     Ok(envelopes)
 }
 
-async fn upload_attachments<S: Store>(
-    attachment_filepath: Vec<String>,
-    manager: &Manager<S, Registered>,
-) -> anyhow::Result<Vec<presage::proto::AttachmentPointer>> {
-    upload_attachments_in_dir(attachment_filepath, manager, None).await
-}
-
 async fn upload_attachments_in_dir<S: Store>(
     attachment_filepath: Vec<String>,
     manager: &Manager<S, Registered>,
