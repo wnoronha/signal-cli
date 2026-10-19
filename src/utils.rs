@@ -379,4 +379,26 @@ mod tests {
             OnNewIdentity::Trust
         ));
     }
+
+    #[test]
+    fn test_validate_account_name_rejects_traversal() {
+        assert!(validate_account_name("+15551234567").is_ok());
+        assert!(validate_account_name("+../../evil").is_err());
+        assert!(validate_account_name("15551234567").is_err());
+        assert!(validate_account_name("+/abs").is_err());
+        assert!(validate_account_name("+a..b").is_err());
+        assert!(validate_db_name("link_temp_123_abc").is_ok());
+        assert!(validate_db_name("link_temp_../../x").is_err());
+        assert!(validate_db_name("other.db").is_err());
+    }
+
+    #[test]
+    fn test_checked_conversions_reject_negatives() {
+        assert!(u64_from_i64_nonnegative(-1, "ts").is_err());
+        assert_eq!(u64_from_i64_nonnegative(5, "ts").unwrap(), 5);
+        assert!(u32_from_i64_nonnegative(-1, "id").is_err());
+        assert!(i32_from_i64_checked(i64::from(i32::MAX) + 1, "opt").is_err());
+        assert_eq!(saturating_millis(-10), 0);
+        assert!(now_millis().is_ok());
+    }
 }
