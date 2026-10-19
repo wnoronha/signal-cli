@@ -7,13 +7,13 @@ use presage::store::Store;
 
 use crate::errors::SignalError;
 use crate::output::{IdentityInfo, SendResult, SuccessResult};
-use crate::utils::{open_sqlite_store, resolve_recipient};
+use crate::utils::open_sqlite_store;
 
 use super::load_registered_and_receive;
 
 pub(crate) async fn core_list_identities() -> anyhow::Result<Vec<IdentityInfo>> {
     Err(SignalError::LibraryLimitation(
-        "listIdentities is not yet supported by presage.".to_string(),
+        "listIdentities is not yet supported by presage (parameters ignored).".to_string(),
     )
     .into())
 }
@@ -29,7 +29,8 @@ pub(crate) async fn run_list_identities(
 
 pub(crate) async fn core_trust() -> anyhow::Result<SuccessResult> {
     Err(SignalError::LibraryLimitation(
-        "Manual trust management is not yet supported by presage.".to_string(),
+        "Manual trust management is not yet supported by presage (parameters ignored)."
+            .to_string(),
     )
     .into())
 }
@@ -55,12 +56,11 @@ pub(crate) async fn run_remove_contact(
     core_remove_contact(&mut manager, recipient).await
 }
 
-#[tracing::instrument(skip(manager))]
+#[tracing::instrument(skip(_manager))]
 pub(crate) async fn core_remove_contact<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-    recipient: String,
+    _manager: &mut Manager<S, Registered>,
+    _recipient: String,
 ) -> anyhow::Result<SuccessResult> {
-    let _service_id = resolve_recipient(manager, &recipient).await?;
     Err(SignalError::LibraryLimitation(
         "removeContact is not yet supported by presage.".to_string(),
     )
@@ -69,7 +69,7 @@ pub(crate) async fn core_remove_contact<S: Store + Send + 'static>(
 
 pub(crate) async fn core_send_poll_create() -> anyhow::Result<SendResult> {
     Err(SignalError::LibraryLimitation(
-        "Poll creation is not yet supported by presage.".to_string(),
+        "Poll creation is not yet supported by presage (parameters ignored).".to_string(),
     )
     .into())
 }
@@ -89,7 +89,9 @@ pub(crate) async fn run_send_poll_create(
 
 pub(crate) async fn core_send_poll_vote() -> anyhow::Result<SendResult> {
     Err(
-        SignalError::LibraryLimitation("Poll voting is not yet supported by presage.".to_string())
+        SignalError::LibraryLimitation(
+            "Poll voting is not yet supported by presage (parameters ignored).".to_string(),
+        )
             .into(),
     )
 }
@@ -108,7 +110,7 @@ pub(crate) async fn run_send_poll_vote(
 
 pub(crate) async fn core_send_poll_terminate() -> anyhow::Result<SendResult> {
     Err(SignalError::LibraryLimitation(
-        "Poll termination is not yet supported by presage.".to_string(),
+        "Poll termination is not yet supported by presage (parameters ignored).".to_string(),
     )
     .into())
 }
@@ -126,7 +128,9 @@ pub(crate) async fn run_send_poll_terminate(
 
 pub(crate) async fn core_block() -> anyhow::Result<SuccessResult> {
     Err(
-        SignalError::LibraryLimitation("Blocking is not yet supported by presage.".to_string())
+        SignalError::LibraryLimitation(
+            "Blocking is not yet supported by presage (parameters ignored).".to_string(),
+        )
             .into(),
     )
 }
@@ -143,7 +147,9 @@ pub(crate) async fn run_block(
 
 pub(crate) async fn core_unblock() -> anyhow::Result<SuccessResult> {
     Err(
-        SignalError::LibraryLimitation("Unblocking is not yet supported by presage.".to_string())
+        SignalError::LibraryLimitation(
+            "Unblocking is not yet supported by presage (parameters ignored).".to_string(),
+        )
             .into(),
     )
 }
