@@ -330,6 +330,20 @@ impl Render for SuccessResult {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VersionInfo {
+    pub version: String,
+}
+
+impl Render for VersionInfo {
+    fn render_text(&self) {
+        println!(
+            "signal-cli {} (Rust lightweight drop-in replacement)",
+            self.version
+        );
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MediaData {
     pub data: String, // Base64 encoded
 }

@@ -46,10 +46,10 @@ pub async fn execute_command(
     let _store_identity = push_store_identity(args.trust_new_identities);
     let result = match args.command {
         crate::cli::Command::Version => {
-            println!(
-                "signal-cli {} (Rust lightweight drop-in replacement)",
-                env!("CARGO_PKG_VERSION")
-            );
+            crate::output::VersionInfo {
+                version: env!("CARGO_PKG_VERSION").to_string(),
+            }
+            .render(args.output);
             Ok(())
         }
 
@@ -461,11 +461,17 @@ pub async fn execute_command(
         | crate::cli::Command::SendUnpinMessage { .. } => not_implemented(args.command.name()),
 
         crate::cli::Command::Unregister { delete_account } => {
-            run_unregister(&config_dir, active_account, delete_account).await
+            run_unregister(&config_dir, active_account, delete_account)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::DeleteLocalAccountData { ignore_registered } => {
-            run_delete_local_account_data(&config_dir, active_account, ignore_registered).await
+            run_delete_local_account_data(&config_dir, active_account, ignore_registered)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::SetPin {

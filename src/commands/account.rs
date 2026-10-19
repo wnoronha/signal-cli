@@ -198,34 +198,35 @@ pub(crate) async fn run_delete_local_account_data(
     config_dir: &std::path::Path,
     active_account: Option<String>,
     ignore_registered: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
-    let db_path = config_dir.join(format!("{}.db", account));
-
-    if !tokio::fs::try_exists(&db_path).await.unwrap_or(false) {
-        println!("No local data found for account: {}", account);
-        return Ok(());
-    }
 
     if !ignore_registered {
-        println!(
-            "Warning: Deleting local data for a registered account. This will NOT unregister the account from the Signal server."
+        eprintln!(
+            "warning: deleting local data for a registered account does NOT unregister it from the Signal server"
         );
-        println!(
-            "If you want to unregister, use the 'unregister' command (currently not implemented)."
-        );
+    }
+
+    let db_path = config_dir.join(format!("{account}.db"));
+    if !tokio::fs::try_exists(&db_path).await.unwrap_or(false) {
+        return Ok(SuccessResult {
+            success: true,
+            message: format!("No local data found for account: {account}"),
+        });
     }
 
     remove_link_db_files(config_dir, &account).await;
-    println!("Deleted local data for account: {}", account);
-    Ok(())
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Deleted local data for account: {account}"),
+    })
 }
 
 pub(crate) async fn run_unregister(
     config_dir: &std::path::Path,
     active_account: Option<String>,
     delete_account: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     if delete_account {
         return Err(SignalError::NotImplemented(
             "Server-side account deletion is not exposed by presage; omit --delete-account or use the primary Java client."
@@ -245,19 +246,19 @@ pub(crate) async fn run_unregister(
                 manager.unlink_secondary(device.id).await?;
             }
         }
-        println!(
-            "Unlinked all secondary devices from this account. This primary device remains registered. Local data stays in {}; use deleteLocalAccountData to remove it.",
-            config_dir.display()
-        );
-        return Ok(());
+        return Ok(SuccessResult {
+            success: true,
+            message: format!(
+                "Unlinked all secondary devices from {account}. This primary device remains registered."
+            ),
+        });
     }
 
     manager.unlink_self().await?;
-    println!(
-        "Unlinked this device from the account. Local data remains in {}; use deleteLocalAccountData to remove it.",
-        config_dir.display()
-    );
-    Ok(())
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Unlinked this device from {account}."),
+    })
 }
 
 pub(crate) async fn run_submit_rate_limit_challenge(
