@@ -47,9 +47,15 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             artifact_name: signal-cli-linux-x86_64
+            archive_suffix: Linux-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: signal-cli-macos-x86_64
+            archive_suffix: macOS-x86_64
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact_name: signal-cli-linux-aarch64
+            archive_suffix: Linux-aarch64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -73,7 +79,7 @@ jobs:
         shell: bash
         run: |
           VERSION=${GITHUB_REF_NAME}
-          ARCHIVE_NAME="signal-cli-${VERSION}-${{ runner.os }}-x86_64.tar.gz"
+          ARCHIVE_NAME="signal-cli-${VERSION}-${{ matrix.archive_suffix }}.tar.gz"
           mkdir -p dist
           cp target/release/signal-cli dist/
           cp README.md LICENSE dist/

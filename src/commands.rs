@@ -1168,7 +1168,8 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
                                 .map(|a| AttachmentEnvelope {
                                     id: a
                                         .attachment_identifier
-                                        .map(|i| format!("{:?}", i))
+                                        .as_ref()
+                                        .map(crate::utils::attachment_id_str)
                                         .unwrap_or_default(),
                                     content_type: a.content_type.unwrap_or_default(),
                                     filename: a.file_name,

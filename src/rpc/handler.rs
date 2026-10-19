@@ -42,6 +42,13 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "uploadStickerPack" => handle_upload_sticker_pack(request.params, manager).await,
         "getAttachment" => handle_get_attachment(request.params, manager).await,
         "getAvatar" => handle_get_avatar(request.params, manager).await,
+        // Account settings update. presage exposes no account-settings API,
+        // so this is an honest stub.
+        "updateConfiguration" => Err(SignalError::LibraryLimitation(
+            "updateConfiguration is not yet supported by presage; account settings are unchanged."
+                .to_string(),
+        )
+        .into()),
         _ => {
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),

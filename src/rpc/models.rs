@@ -1,5 +1,24 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
+
+/// Accept either `"recipient": "<id>"` or `"recipient": ["<id>", ...]`.
+/// Some JSON-RPC clients send the scalar form first.
+pub fn string_or_vec<'de, D>(deserializer: D) -> Result<Option<Vec<String>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
+    Ok(match Option::<OneOrMany>::deserialize(deserializer)? {
+        None => None,
+        Some(OneOrMany::One(s)) => Some(vec![s]),
+        Some(OneOrMany::Many(v)) => Some(v),
+    })
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct JsonRpcRequest {
@@ -36,6 +55,7 @@ pub struct JsonRpcNotification {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendParams {
+    #[serde(default, deserialize_with = "string_or_vec")]
     pub recipient: Option<Vec<String>>,
     pub group_id: Option<String>,
     pub message: Option<String>,
@@ -78,6 +98,7 @@ pub struct SendReceiptParams {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SendTypingParams {
+    #[serde(default, deserialize_with = "string_or_vec")]
     pub recipient: Option<Vec<String>>,
     pub group_id: Option<String>,
     pub stop: Option<bool>,
