@@ -46,8 +46,7 @@ pub struct Cli {
 
     #[clap(
         long = "scrub-log",
-        hide = true,
-        help = "Not implemented in this Rust port (accepted for CLI compatibility)"
+        help = "Not implemented: logs are not redacted (accepted for Java signal-cli compatibility)"
     )]
     pub scrub_log: bool,
 

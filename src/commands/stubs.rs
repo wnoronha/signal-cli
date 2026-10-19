@@ -29,8 +29,7 @@ pub(crate) async fn run_list_identities(
 
 pub(crate) async fn core_trust() -> anyhow::Result<SuccessResult> {
     Err(SignalError::LibraryLimitation(
-        "Manual trust management is not yet supported by presage (parameters ignored)."
-            .to_string(),
+        "Manual trust management is not yet supported by presage (parameters ignored).".to_string(),
     )
     .into())
 }
@@ -88,12 +87,10 @@ pub(crate) async fn run_send_poll_create(
 }
 
 pub(crate) async fn core_send_poll_vote() -> anyhow::Result<SendResult> {
-    Err(
-        SignalError::LibraryLimitation(
-            "Poll voting is not yet supported by presage (parameters ignored).".to_string(),
-        )
-            .into(),
+    Err(SignalError::LibraryLimitation(
+        "Poll voting is not yet supported by presage (parameters ignored).".to_string(),
     )
+    .into())
 }
 
 pub(crate) async fn run_send_poll_vote(
@@ -127,12 +124,10 @@ pub(crate) async fn run_send_poll_terminate(
 }
 
 pub(crate) async fn core_block() -> anyhow::Result<SuccessResult> {
-    Err(
-        SignalError::LibraryLimitation(
-            "Blocking is not yet supported by presage (parameters ignored).".to_string(),
-        )
-            .into(),
+    Err(SignalError::LibraryLimitation(
+        "Blocking is not yet supported by presage (parameters ignored).".to_string(),
     )
+    .into())
 }
 
 pub(crate) async fn run_block(
@@ -146,12 +141,10 @@ pub(crate) async fn run_block(
 }
 
 pub(crate) async fn core_unblock() -> anyhow::Result<SuccessResult> {
-    Err(
-        SignalError::LibraryLimitation(
-            "Unblocking is not yet supported by presage (parameters ignored).".to_string(),
-        )
-            .into(),
+    Err(SignalError::LibraryLimitation(
+        "Unblocking is not yet supported by presage (parameters ignored).".to_string(),
     )
+    .into())
 }
 
 pub(crate) async fn run_unblock(

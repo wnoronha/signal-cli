@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod commands;
+pub mod compat;
 pub mod errors;
 pub mod output;
 pub mod rpc;

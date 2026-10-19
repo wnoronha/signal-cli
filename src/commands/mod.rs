@@ -167,6 +167,7 @@ pub async fn execute_command(
     active_account: Option<String>,
 ) -> anyhow::Result<()> {
     let output = args.output;
+    crate::compat::warn_unimplemented_cli_flags(&args);
     let _store_identity = push_store_identity(args.trust_new_identities);
     let result = match args.command {
         crate::cli::Command::Version => {
