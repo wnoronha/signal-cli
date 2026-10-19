@@ -5,10 +5,12 @@ use crate::output::Render;
 use crate::output::render_command_error;
 use crate::utils::{parse_sticker_pack_uri, push_store_identity};
 
+mod envelope;
 mod group_id;
 mod runtime;
 mod stubs;
 
+pub(crate) use envelope::build_receive_envelope;
 pub(crate) use group_id::parse_group_id;
 pub(crate) use runtime::{load_registered, load_registered_and_receive};
 pub(crate) use stubs::*;

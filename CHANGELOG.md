@@ -8,6 +8,10 @@ Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.1.3-dev] - Unreleased
 
 ### Added
+- Daemon: multi-account JSON-RPC without `-a` (`params.account`, `listAccounts`, cached managers).
+- JSON-RPC: `startLink`, `finishLink`, `addDevice`, group method stubs (`joinGroup`, `updateGroup`, `quitGroup`), `subscribeReceive` / `unsubscribeReceive` compat.
+- JSON-RPC / receive: shared envelope builder (`threadTitle`, base64 `groupId`, `dataMessage.timestamp`, empty `mentions`/`contacts`).
+- JSON: `listGroups` ids as base64; device fields use camelCase in JSON output.
 - CLI: `whoami`, `clearSessions`, `sendSessionReset`.
 - JSON-RPC: `whoami`, `clearSessions`, `sendSessionReset`, `removeStickerPack`.
 - CLI: receive envelopes include `threadTitle` and `groupId`.

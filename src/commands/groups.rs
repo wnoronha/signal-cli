@@ -8,9 +8,10 @@ use presage::manager::Registered;
 use presage::store::Store;
 
 use crate::errors::SignalError;
-use crate::output::{GroupInfo, GroupList};
+use crate::output::{GroupInfo, GroupList, SendResult};
 use crate::utils::open_sqlite_store;
 
+use super::group_id::encode_group_id_b64;
 use super::load_registered_and_receive;
 
 pub(crate) async fn run_list_groups(
@@ -34,7 +35,8 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
     let mut groups = Vec::new();
     for (key, g) in manager.store().groups().await?.flatten() {
         let hex_key = hex::encode(key);
-        if !group_ids.is_empty() && !group_ids.contains(&hex_key) {
+        let b64_key = encode_group_id_b64(&key);
+        if !group_ids.is_empty() && !group_ids.contains(&hex_key) && !group_ids.contains(&b64_key) {
             continue;
         }
 
@@ -60,7 +62,7 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
                 .collect();
 
             GroupInfo {
-                id: hex_key,
+                id: b64_key,
                 name: g.title,
                 description: g.description,
                 members_count: None,
@@ -70,10 +72,11 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
                 pending_members: Some(pending_members),
                 requesting_members: Some(requesting_members),
                 admins: Some(admins),
+                group_invite_link: None,
             }
         } else {
             GroupInfo {
-                id: hex_key,
+                id: b64_key,
                 name: g.title,
                 description: g.description,
                 members_count: Some(g.members.len()),
@@ -83,6 +86,7 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
                 pending_members: None,
                 requesting_members: None,
                 admins: None,
+                group_invite_link: None,
             }
         };
 
@@ -91,15 +95,19 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
     Ok(GroupList { groups, detailed })
 }
 
+pub(crate) async fn core_join_group() -> anyhow::Result<()> {
+    Err(SignalError::LibraryLimitation(
+        "joinGroup is not yet supported by presage (join via URI is not exposed).".to_string(),
+    )
+    .into())
+}
+
 pub(crate) async fn run_join_group(
     _config_dir: &Path,
     _active_account: Option<String>,
     _uri: String,
 ) -> anyhow::Result<()> {
-    Err(SignalError::NotImplemented(
-        "joinGroup is not yet implemented (join via URI is not exposed by presage).".to_string(),
-    )
-    .into())
+    core_join_group().await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -125,8 +133,12 @@ pub(crate) async fn run_update_group(
     _member_label_emoji: Option<String>,
     _member_label: Option<String>,
 ) -> anyhow::Result<()> {
-    Err(SignalError::NotImplemented(
-        "updateGroup is not yet implemented (Group V2 admin operations are not exposed by presage)."
+    core_update_group().await.map(|_| ())
+}
+
+pub(crate) async fn core_update_group() -> anyhow::Result<SendResult> {
+    Err(SignalError::LibraryLimitation(
+        "updateGroup is not yet supported by presage (Group V2 admin operations are not exposed)."
             .to_string(),
     )
     .into())
@@ -138,8 +150,12 @@ pub(crate) async fn run_quit_group(
     _group_id: String,
     _delete: bool,
 ) -> anyhow::Result<()> {
-    Err(SignalError::NotImplemented(
-        "quitGroup is not yet implemented (leave group is not exposed by presage).".to_string(),
+    core_quit_group().await.map(|_| ())
+}
+
+pub(crate) async fn core_quit_group() -> anyhow::Result<crate::output::SuccessResult> {
+    Err(SignalError::LibraryLimitation(
+        "quitGroup is not yet supported by presage (leave group is not exposed).".to_string(),
     )
     .into())
 }

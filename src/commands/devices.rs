@@ -22,10 +22,22 @@ pub(crate) async fn run_add_device(
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
-    let url = url::Url::parse(&uri)?;
-    manager.link_secondary(url).await?;
+    core_add_device(&mut manager, uri).await?;
     println!("Added new secondary device.");
     Ok(())
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_add_device<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    uri: String,
+) -> anyhow::Result<SuccessResult> {
+    let url = url::Url::parse(&uri)?;
+    manager.link_secondary(url).await?;
+    Ok(SuccessResult {
+        success: true,
+        message: "Added new secondary device.".to_string(),
+    })
 }
 
 pub(crate) async fn run_list_devices(

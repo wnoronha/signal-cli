@@ -232,6 +232,20 @@ pub struct GetAvatarParams {
     pub group_id: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinishLinkParams {
+    pub device_link_uri: String,
+    pub device_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddDeviceParams {
+    pub device_link_uri: Option<String>,
+    pub uri: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

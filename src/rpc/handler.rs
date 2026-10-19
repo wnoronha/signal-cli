@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use presage::Manager;
 use presage::manager::Registered;
 use presage::store::Store;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 /// JSON-RPC entry for daemon modes (optional CLI `-a`, per-request `params.account`).
@@ -18,16 +18,90 @@ pub async fn handle_daemon_request(
     ctx: Arc<DaemonContext>,
 ) -> JsonRpcResponse {
     let id = request.id.clone().unwrap_or(Value::Null);
-    if request.method == "listAccounts" {
-        return match ctx.list_accounts_json().await {
-            Ok(accounts) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                result: Some(accounts),
-                error: None,
-                id,
-            },
-            Err(e) => json_rpc_error(id, -32603, e.to_string()),
-        };
+    match request.method.as_str() {
+        "listAccounts" => {
+            return match ctx.list_accounts_json().await {
+                Ok(accounts) => JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(accounts),
+                    error: None,
+                    id,
+                },
+                Err(e) => json_rpc_error(id, -32603, e.to_string()),
+            };
+        }
+        "startLink" => {
+            let device_name = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("deviceName"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            return match ctx.rpc_start_link(device_name).await {
+                Ok(result) => JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(result),
+                    error: None,
+                    id,
+                },
+                Err(e) => json_rpc_error(id, -32603, e.to_string()),
+            };
+        }
+        "finishLink" => {
+            let params: FinishLinkParams = match request.params.clone() {
+                Some(p) => serde_json::from_value(p).unwrap_or(FinishLinkParams {
+                    device_link_uri: String::new(),
+                    device_name: None,
+                }),
+                None => {
+                    return json_rpc_error(id, -32602, "Missing params".to_string());
+                }
+            };
+            if params.device_link_uri.is_empty() {
+                return json_rpc_error(id, -32602, "deviceLinkUri is required".to_string());
+            }
+            return match ctx
+                .rpc_finish_link(params.device_link_uri, params.device_name)
+                .await
+            {
+                Ok(result) => JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(result),
+                    error: None,
+                    id,
+                },
+                Err(e) => json_rpc_error(id, -32603, e.to_string()),
+            };
+        }
+        "subscribeReceive" => {
+            return match commands::core_subscribe_receive().await {
+                Ok(sub_id) => JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(json!(sub_id)),
+                    error: None,
+                    id,
+                },
+                Err(e) => rpc_result_to_response(id, Err(e)),
+            };
+        }
+        "unsubscribeReceive" => {
+            let subscription = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("subscription"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0);
+            return match commands::core_unsubscribe_receive(subscription).await {
+                Ok(result) => JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: Some(serde_json::to_value(result).unwrap_or(json!({}))),
+                    error: None,
+                    id,
+                },
+                Err(e) => rpc_result_to_response(id, Err(e)),
+            };
+        }
+        _ => {}
     }
 
     let account = match ctx.resolve_account(&request.method, &request.params) {
@@ -49,6 +123,25 @@ pub async fn handle_daemon_request(
 
     let mut manager = manager_handle.lock().await;
     handle_request(request, &mut *manager).await
+}
+
+fn rpc_result_to_response(id: Value, result: Result<Value>) -> JsonRpcResponse {
+    match result {
+        Ok(res) => JsonRpcResponse {
+            jsonrpc: "2.0".to_string(),
+            result: Some(res),
+            error: None,
+            id,
+        },
+        Err(e) => {
+            let (code, message) = if let Some(signal_err) = e.downcast_ref::<SignalError>() {
+                (signal_err.json_rpc_code(), signal_err.to_string())
+            } else {
+                (-32603, e.to_string())
+            };
+            json_rpc_error(id, code, message)
+        }
+    }
 }
 
 fn json_rpc_error(id: Value, code: i32, message: String) -> JsonRpcResponse {
@@ -110,6 +203,14 @@ pub async fn handle_request<S: Store + Send + 'static>(
                 .to_string(),
         )
         .into()),
+        "joinGroup" => commands::core_join_group().await.map(|_| json!({})),
+        "updateGroup" => commands::core_update_group()
+            .await
+            .map(|r| serde_json::to_value(r).unwrap()),
+        "quitGroup" => commands::core_quit_group()
+            .await
+            .map(|r| serde_json::to_value(r).unwrap()),
+        "addDevice" => handle_add_device(request.params, manager).await,
         _ => {
             return JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
@@ -500,6 +601,20 @@ async fn handle_get_attachment<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
+async fn handle_add_device<S: Store + Send + 'static>(
+    params: Option<Value>,
+    manager: &mut Manager<S, Registered>,
+) -> Result<Value> {
+    let params: AddDeviceParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let uri = params
+        .device_link_uri
+        .or(params.uri)
+        .ok_or_else(|| anyhow!("deviceLinkUri or uri is required"))?;
+    let result = commands::core_add_device(manager, uri).await?;
+    Ok(serde_json::to_value(result)?)
+}
+
 async fn handle_get_avatar<S: Store + Send + 'static>(
     params: Option<Value>,
     manager: &mut Manager<S, Registered>,
@@ -531,5 +646,48 @@ mod tests {
         let unblock = commands::core_unblock().await.unwrap_err().to_string();
         assert!(block.contains("Blocking"));
         assert!(unblock.contains("Unblocking"));
+    }
+
+    #[tokio::test]
+    async fn rpc_update_group_returns_library_limitation() {
+        let result = commands::core_update_group().await;
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        let signal_err = err.downcast_ref::<SignalError>().expect("SignalError");
+        assert_eq!(signal_err.json_rpc_code(), -32005);
+    }
+
+    #[tokio::test]
+    async fn daemon_send_without_account_returns_32602() {
+        use crate::rpc::context::DaemonContext;
+        use std::path::PathBuf;
+
+        let ctx = DaemonContext::new(PathBuf::from("/tmp/signal-cli-test"), None);
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "send".to_string(),
+            params: Some(json!({ "message": "hi" })),
+            id: Some(json!(1)),
+        };
+        let response = handle_daemon_request(request, ctx).await;
+        let error = response.error.expect("error response");
+        assert_eq!(error.code, -32602);
+    }
+
+    #[tokio::test]
+    async fn daemon_list_accounts_does_not_require_account() {
+        use crate::rpc::context::DaemonContext;
+        use std::path::PathBuf;
+
+        let ctx = DaemonContext::new(PathBuf::from("/tmp/signal-cli-test"), None);
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "listAccounts".to_string(),
+            params: None,
+            id: Some(json!(1)),
+        };
+        let response = handle_daemon_request(request, ctx).await;
+        assert!(response.error.is_none());
+        assert!(response.result.is_some());
     }
 }

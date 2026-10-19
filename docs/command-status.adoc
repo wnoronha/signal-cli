@@ -51,7 +51,7 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 | Command | Status | Presage | Notes
 
 | `listGroups` | Implemented | store + group sync | JSON-RPC: detailed array; member IDs are service IDs
-| `joinGroup`, `updateGroup`, `quitGroup` | Stub | none (public API) | CLI: non-zero
+| `joinGroup`, `updateGroup`, `quitGroup` | Stub | none (public API) | JSON-RPC: `-32005`; CLI: non-zero
 | `listContacts`, `updateContact`, `updateProfile` | Implemented / partial | store / `update_profile`, `retrieve_profile_by_uuid` | CLI: detailed contacts include profile when key known
 | `getUserStatus` | Implemented / partial | CDS + `retrieve_profile_by_uuid` | Profile fields when contact key known
 | `removeContact`, `block`, `unblock` | Stub | none | CLI: non-zero
@@ -77,7 +77,7 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 
 | JSON-RPC over stdin, UNIX socket, TCP, HTTP | Implemented | one `Manager` per account | Daemon: see link:daemon-rust-port.adoc[]
 | D-Bus daemon | Not implemented | n/a | Compat: warn; use JSON-RPC
-| Multi-account daemon without `-a` | Implemented | one manager per `+.db` | Daemon: use `params.account`; `listAccounts` without `-a`
+| Multi-account daemon without `-a` | Implemented | one manager per `+.db` | Daemon: `params.account`, `listAccounts`, `startLink`/`finishLink`
 |===
 
 See also: link:faq.adoc[FAQ], link:getting-started.adoc[Getting started], link:presage-deps.md[Presage mapping].

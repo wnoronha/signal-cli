@@ -1,6 +1,10 @@
 use anyhow::bail;
 use base64::prelude::*;
 
+pub(crate) fn encode_group_id_b64(key: &[u8; 32]) -> String {
+    BASE64_STANDARD.encode(key)
+}
+
 pub(crate) fn parse_group_id(id_str: &str) -> anyhow::Result<[u8; 32]> {
     if let Ok(bytes) = BASE64_STANDARD.decode(id_str)
         && bytes.len() == 32
@@ -40,5 +44,12 @@ mod tests {
     #[test]
     fn parse_group_id_rejects_short_hex() {
         assert!(parse_group_id("abcd").is_err());
+    }
+
+    #[test]
+    fn encode_group_id_round_trip() {
+        let raw = [2u8; 32];
+        let b64 = encode_group_id_b64(&raw);
+        assert_eq!(parse_group_id(&b64).unwrap(), raw);
     }
 }

@@ -74,7 +74,7 @@ impl Render for AccountList {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct SendResult {
     pub timestamp: u64,
 }
@@ -106,6 +106,8 @@ pub struct GroupInfo {
     pub requesting_members: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub admins: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_invite_link: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -268,6 +270,7 @@ impl Render for Vec<IdentityInfo> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     pub id: u32,
     pub name: Option<String>,
@@ -383,6 +386,8 @@ impl Render for StickerPackList {
 #[serde(rename_all = "camelCase")]
 pub struct ReceiveEnvelope {
     pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_number: Option<String>,
     pub source_uuid: Option<String>,
     pub source_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -451,6 +456,7 @@ impl Render for Vec<ReceiveEnvelope> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DataMessageEnvelope {
+    pub timestamp: u64,
     pub message: Option<String>,
     pub attachments: Option<Vec<AttachmentEnvelope>>,
     pub sticker: Option<StickerEnvelope>,
@@ -458,6 +464,10 @@ pub struct DataMessageEnvelope {
     pub expires_in_seconds: u32,
     pub is_expiration_update: bool,
     pub view_once: bool,
+    #[serde(default)]
+    pub mentions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub contacts: Vec<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -488,4 +498,37 @@ pub struct AttachmentEnvelope {
     pub height: Option<u32>,
     pub caption: Option<String>,
     pub upload_timestamp: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_info_json_uses_camel_case_and_base64_id_field() {
+        let group = GroupInfo {
+            id: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=".into(),
+            name: "My Group".into(),
+            description: Some("desc".into()),
+            members_count: None,
+            is_member: Some(true),
+            is_blocked: Some(false),
+            members: Some(vec!["+15551234567".into()]),
+            pending_members: Some(vec![]),
+            requesting_members: Some(vec![]),
+            admins: Some(vec![]),
+            group_invite_link: None,
+        };
+        let json: serde_json::Value = serde_json::to_value(&group).unwrap();
+        assert!(json.get("isMember").is_some());
+        assert!(json.get("pendingMembers").is_some());
+        assert_eq!(json.get("id").unwrap().as_str().unwrap().len(), 44);
+    }
+
+    #[test]
+    fn send_result_json_shape() {
+        let result = SendResult { timestamp: 999 };
+        let json: serde_json::Value = serde_json::to_value(&result).unwrap();
+        assert_eq!(json.get("timestamp").unwrap(), 999);
+    }
 }

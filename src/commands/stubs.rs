@@ -157,6 +157,18 @@ pub(crate) async fn run_unblock(
     core_unblock().await
 }
 
+pub(crate) async fn core_subscribe_receive() -> anyhow::Result<i64> {
+    Ok(0)
+}
+
+pub(crate) async fn core_unsubscribe_receive(_subscription: i64) -> anyhow::Result<SuccessResult> {
+    Ok(SuccessResult {
+        success: true,
+        message: "Receive subscription cleared (daemon always receives in the background)."
+            .to_string(),
+    })
+}
+
 pub(crate) async fn core_send_contacts() -> anyhow::Result<SuccessResult> {
     Err(
         SignalError::LibraryLimitation("sendContacts is not yet supported by presage.".to_string())

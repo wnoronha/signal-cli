@@ -14,14 +14,14 @@ use presage::libsignal_service::proto::{
 use presage::libsignal_service::protocol::ServiceId;
 use presage::manager::Registered;
 use presage::model::messages::Received;
-use presage::store::{Store, Thread};
+use presage::store::Store;
 
 use crate::output::{
-    AttachmentEnvelope, DataMessageEnvelope, ReceiveEnvelope, SendResult, SuccessResult,
+    ReceiveEnvelope, SendResult, SuccessResult,
 };
 use crate::utils::{open_sqlite_store, resolve_recipient};
 
-use super::{load_registered_and_receive, parse_group_id};
+use super::{build_receive_envelope, load_registered_and_receive, parse_group_id};
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_send(
@@ -162,67 +162,8 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
                     "Processing received message from {}",
                     content.metadata.sender.service_id_string()
                 );
-                let source_uuid = content.metadata.sender.service_id_string();
-                let timestamp = content.metadata.server_timestamp.timestamp_millis() as u64;
-
-                let (thread_title, group_id) = match Thread::try_from(content.as_ref()) {
-                    Ok(thread) => {
-                        let title = manager.thread_title(&thread).await.ok();
-                        let gid = match thread {
-                            Thread::Group(key) => Some(hex::encode(key)),
-                            Thread::Contact(_) => None,
-                        };
-                        (title, gid)
-                    }
-                    Err(_) => (None, None),
-                };
-
-                let data_message = if let ContentBody::DataMessage(dm) = content.body {
-                    Some(DataMessageEnvelope {
-                        message: dm.body,
-                        attachments: Some(
-                            dm.attachments
-                                .into_iter()
-                                .map(|a| AttachmentEnvelope {
-                                    id: a
-                                        .attachment_identifier
-                                        .as_ref()
-                                        .map(crate::utils::attachment_id_str)
-                                        .unwrap_or_default(),
-                                    content_type: a.content_type.unwrap_or_default(),
-                                    filename: a.file_name,
-                                    size: a.size.map(|s| s as u64),
-                                    width: a.width,
-                                    height: a.height,
-                                    caption: a.caption,
-                                    upload_timestamp: a.upload_timestamp,
-                                })
-                                .collect(),
-                        ),
-                        sticker: None,
-                        reaction: None,
-                        expires_in_seconds: dm.expire_timer.unwrap_or_default(),
-                        is_expiration_update: false,
-                        view_once: dm.is_view_once.unwrap_or_default(),
-                    })
-                } else {
-                    None
-                };
-
-                envelopes.push(ReceiveEnvelope {
-                    source: None,
-                    source_uuid: Some(source_uuid),
-                    source_name: thread_title.clone(),
-                    thread_title,
-                    group_id,
-                    source_device: Some(content.metadata.sender_device.into()),
-                    timestamp,
-                    server_received_timestamp: None,
-                    server_delivered_timestamp: None,
-                    data_message,
-                    typing_message: None,
-                    call_message: None,
-                });
+                let envelope = build_receive_envelope(&*manager, &content).await;
+                envelopes.push(envelope);
 
                 count += 1;
                 if let Some(max) = max_messages

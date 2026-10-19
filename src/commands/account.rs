@@ -15,6 +15,47 @@ use crate::utils::{find_local_accounts, open_or_create_sqlite_store, open_sqlite
 
 use super::load_registered;
 
+pub(crate) fn remove_link_db_files(config_dir: &Path, db_name: &str) {
+    let _ = std::fs::remove_file(config_dir.join(format!("{db_name}.db")));
+    let _ = std::fs::remove_file(config_dir.join(format!("{db_name}.db-wal")));
+    let _ = std::fs::remove_file(config_dir.join(format!("{db_name}.db-shm")));
+}
+
+pub(crate) fn new_link_temp_db_name() -> String {
+    format!(
+        "link_temp_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    )
+}
+
+pub(crate) async fn finalize_link_database(
+    config_dir: &Path,
+    db_name: &str,
+    phone_number: &str,
+) -> anyhow::Result<()> {
+    if db_name == phone_number {
+        return Ok(());
+    }
+    let db_path = config_dir.join(format!("{db_name}.db"));
+    let final_db_path = config_dir.join(format!("{phone_number}.db"));
+    if final_db_path.exists() {
+        remove_link_db_files(config_dir, phone_number);
+    }
+    std::fs::rename(&db_path, &final_db_path)?;
+    let wal_path = config_dir.join(format!("{db_name}.db-wal"));
+    if wal_path.exists() {
+        std::fs::rename(&wal_path, config_dir.join(format!("{phone_number}.db-wal")))?;
+    }
+    let shm_path = config_dir.join(format!("{db_name}.db-shm"));
+    if shm_path.exists() {
+        std::fs::rename(&shm_path, config_dir.join(format!("{phone_number}.db-shm")))?;
+    }
+    Ok(())
+}
+
 pub(crate) async fn run_list_accounts(config_dir: &Path) -> anyhow::Result<AccountList> {
     let accounts = find_local_accounts(config_dir)?;
     Ok(AccountList { accounts })
@@ -95,9 +136,7 @@ pub(crate) async fn run_link(
     let db_path = config_dir.join(format!("{}.db", db_name));
 
     if db_path.exists() {
-        let _ = std::fs::remove_file(&db_path);
-        let _ = std::fs::remove_file(config_dir.join(format!("{}.db-wal", db_name)));
-        let _ = std::fs::remove_file(config_dir.join(format!("{}.db-shm", db_name)));
+        remove_link_db_files(config_dir, &db_name);
     }
 
     let store = open_or_create_sqlite_store(config_dir, &db_name)
@@ -143,38 +182,11 @@ pub(crate) async fn run_link(
     // Drop manager to release file locks and ensure flush
     drop(manager);
 
-    // If we used a temporary name or a name different from the actual phone number, rename it now
-    if db_name != phone_number {
-        let final_db_path = config_dir.join(format!("{}.db", phone_number));
-        if final_db_path.exists() {
-            let _ = std::fs::remove_file(&final_db_path);
-            let _ = std::fs::remove_file(config_dir.join(format!("{}.db-wal", phone_number)));
-            let _ = std::fs::remove_file(config_dir.join(format!("{}.db-shm", phone_number)));
-        }
-
-        // Rename main file
-        std::fs::rename(&db_path, &final_db_path)?;
-
-        // Also rename WAL and SHM files if they exist
-        let wal_path = config_dir.join(format!("{}.db-wal", db_name));
-        if wal_path.exists() {
-            std::fs::rename(
-                &wal_path,
-                config_dir.join(format!("{}.db-wal", phone_number)),
-            )?;
-        }
-        let shm_path = config_dir.join(format!("{}.db-shm", db_name));
-        if shm_path.exists() {
-            std::fs::rename(
-                &shm_path,
-                config_dir.join(format!("{}.db-shm", phone_number)),
-            )?;
-        }
-
-        println!("Account database saved to: {:?}", final_db_path);
-    } else {
-        println!("Account database saved to: {:?}", db_path);
-    }
+    finalize_link_database(config_dir, &db_name, &phone_number).await?;
+    println!(
+        "Account database saved to: {:?}",
+        config_dir.join(format!("{phone_number}.db"))
+    );
 
     Ok(())
 }
