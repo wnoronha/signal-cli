@@ -669,7 +669,11 @@ mod tests {
         use crate::rpc::context::DaemonContext;
         use std::path::PathBuf;
 
-        let ctx = DaemonContext::new(PathBuf::from("/tmp/signal-cli-test"), None);
+        let ctx = DaemonContext::new(
+            PathBuf::from("/tmp/signal-cli-test"),
+            None,
+            crate::cli::TrustMode::OnFirstUse,
+        );
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             method: "send".to_string(),
@@ -686,7 +690,11 @@ mod tests {
         use crate::rpc::context::DaemonContext;
         use std::path::PathBuf;
 
-        let ctx = DaemonContext::new(PathBuf::from("/tmp/signal-cli-test"), None);
+        let ctx = DaemonContext::new(
+            PathBuf::from("/tmp/signal-cli-test"),
+            None,
+            crate::cli::TrustMode::OnFirstUse,
+        );
         let request = JsonRpcRequest {
             jsonrpc: "2.0".to_string(),
             method: "listAccounts".to_string(),

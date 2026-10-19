@@ -47,15 +47,21 @@ pub struct DaemonContext {
     pub config_dir: PathBuf,
     /// Set when daemon started with `-a` (single-account mode).
     pub default_account: Option<String>,
+    trust_mode: crate::cli::TrustMode,
     managers: Mutex<HashMap<String, ManagerHandle>>,
     link_session: Mutex<Option<PendingLink>>,
 }
 
 impl DaemonContext {
-    pub fn new(config_dir: PathBuf, default_account: Option<String>) -> Arc<Self> {
+    pub fn new(
+        config_dir: PathBuf,
+        default_account: Option<String>,
+        trust_mode: crate::cli::TrustMode,
+    ) -> Arc<Self> {
         Arc::new(Self {
             config_dir,
             default_account,
+            trust_mode,
             managers: Mutex::new(HashMap::new()),
             link_session: Mutex::new(None),
         })
@@ -83,16 +89,22 @@ impl DaemonContext {
 
     pub async fn manager_for(&self, account: &str) -> Result<ManagerHandle> {
         crate::utils::validate_account_name(account).map_err(|e| anyhow!(e))?;
-        let mut map = self.managers.lock().await;
-        if let Some(existing) = map.get(account) {
-            return Ok(existing.clone());
+        // Enforce --trust-new-identities on this thread even when the caller
+        // runs on a different Tokio worker (HTTP) than the CLI entry thread.
+        let _guard = crate::utils::push_store_identity(self.trust_mode);
+        // Avoid holding the map lock across store open / network load.
+        if let Some(existing) = self.managers.lock().await.get(account).cloned() {
+            return Ok(existing);
         }
         let store = open_sqlite_store(&self.config_dir, account)
             .await
             .with_context(|| format!("Failed to open account {account}"))?;
         let manager = load_registered_and_receive(store).await?;
         let handle = Arc::new(Mutex::new(manager));
-        map.insert(account.to_string(), handle.clone());
+        self.managers
+            .lock()
+            .await
+            .insert(account.to_string(), handle.clone());
         Ok(handle)
     }
 
@@ -107,6 +119,7 @@ impl DaemonContext {
             anyhow::bail!("A link session is already in progress; call finishLink first.");
         }
 
+        let _guard = crate::utils::push_store_identity(self.trust_mode);
         let db_name = new_link_temp_db_name();
         remove_link_db_files(&self.config_dir, &db_name).await;
 
@@ -172,8 +185,11 @@ impl DaemonContext {
             .map_err(|_| anyhow!("Timed out waiting for primary device to approve linking"))?
             .map_err(|_| anyhow!("Link task ended unexpectedly"))??;
 
-        // New account may need a receive loop; existing daemon loops only cover accounts at startup.
-        let _ = phone_number;
+        // Warm the manager cache so the new account is usable without a
+        // daemon restart. Push `receive` notifications still require a
+        // restart (loops are spawned at startup in `run_json_rpc`).
+        drop(session);
+        let _ = self.manager_for(&phone_number).await;
 
         Ok(json!({ "deviceLinkUri": device_link_uri }))
     }
@@ -195,7 +211,11 @@ mod tests {
 
     #[test]
     fn resolve_account_requires_account_in_multi_account_mode() {
-        let ctx = DaemonContext::new(PathBuf::from("/tmp/signal-cli-test"), None);
+        let ctx = DaemonContext::new(
+            PathBuf::from("/tmp/signal-cli-test"),
+            None,
+            crate::cli::TrustMode::OnFirstUse,
+        );
         let err = ctx
             .resolve_account("send", &None)
             .expect_err("expected missing account");
@@ -207,13 +227,18 @@ mod tests {
         let ctx = DaemonContext::new(
             PathBuf::from("/tmp/signal-cli-test"),
             Some("+15551234567".into()),
+            crate::cli::TrustMode::OnFirstUse,
         );
         assert_eq!(ctx.resolve_account("send", &None).unwrap(), "+15551234567");
     }
 
     #[test]
     fn list_accounts_is_accountless_method() {
-        let ctx = DaemonContext::new(PathBuf::from("/tmp"), None);
+        let ctx = DaemonContext::new(
+            PathBuf::from("/tmp"),
+            None,
+            crate::cli::TrustMode::OnFirstUse,
+        );
         assert!(ctx.resolve_account("listAccounts", &None).is_err());
     }
 }

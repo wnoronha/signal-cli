@@ -612,7 +612,8 @@ pub async fn execute_command(
         }
 
         crate::cli::Command::Daemon { .. } | crate::cli::Command::JsonRpc { .. } => {
-            crate::rpc::server::run_json_rpc(config_dir, active_account, args.command).await
+            let trust = args.trust_new_identities;
+            crate::rpc::server::run_json_rpc(config_dir, active_account, args.command, trust).await
         }
 
         crate::cli::Command::SubmitRateLimitChallenge { challenge, captcha } => {

@@ -37,7 +37,7 @@ pub fn push_store_identity(mode: TrustMode) -> StoreIdentityGuard {
 }
 
 fn active_store_identity() -> OnNewIdentity {
-    ACTIVE_STORE_IDENTITY.with(|c| c.borrow().clone().unwrap_or(OnNewIdentity::Trust))
+    ACTIVE_STORE_IDENTITY.with(|c| c.borrow().clone().unwrap_or(OnNewIdentity::Reject))
 }
 
 /// Current store identity policy (for registration/link paths that open SQLite directly).

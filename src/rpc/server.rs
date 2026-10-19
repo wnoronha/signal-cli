@@ -234,8 +234,9 @@ pub async fn run_json_rpc(
     config_dir: PathBuf,
     active_account: Option<String>,
     command: Command,
+    trust_mode: crate::cli::TrustMode,
 ) -> anyhow::Result<()> {
-    let ctx = DaemonContext::new(config_dir, active_account);
+    let ctx = DaemonContext::new(config_dir, active_account, trust_mode);
     let (notification_tx, _) = broadcast::channel::<String>(100);
     let (rpc_tx, mut rpc_rx) = mpsc::channel::<RpcRequestMessage>(32);
 
