@@ -110,7 +110,7 @@ impl DaemonContext {
         }
 
         let db_name = new_link_temp_db_name();
-        remove_link_db_files(&self.config_dir, &db_name);
+        remove_link_db_files(&self.config_dir, &db_name).await;
 
         let store = open_or_create_sqlite_store(&self.config_dir, &db_name)
             .await

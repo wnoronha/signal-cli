@@ -15,10 +15,11 @@ use crate::utils::{find_local_accounts, open_or_create_sqlite_store, open_sqlite
 
 use super::load_registered;
 
-pub(crate) fn remove_link_db_files(config_dir: &Path, db_name: &str) {
-    let _ = std::fs::remove_file(config_dir.join(format!("{db_name}.db")));
-    let _ = std::fs::remove_file(config_dir.join(format!("{db_name}.db-wal")));
-    let _ = std::fs::remove_file(config_dir.join(format!("{db_name}.db-shm")));
+pub(crate) async fn remove_link_db_files(config_dir: &Path, db_name: &str) {
+    let _ = tokio::fs::remove_file(config_dir.join(format!("{db_name}.db"))).await;
+    let _ = tokio::fs::remove_file(config_dir.join(format!("{db_name}.db-wal"))).await;
+    let _ = tokio::fs::remove_file(config_dir.join(format!("{db_name}.db-shm"))).await;
+    let _ = tokio::fs::remove_file(config_dir.join(format!("{db_name}.db-journal"))).await;
 }
 
 pub(crate) fn new_link_temp_db_name() -> String {
@@ -41,17 +42,15 @@ pub(crate) async fn finalize_link_database(
     }
     let db_path = config_dir.join(format!("{db_name}.db"));
     let final_db_path = config_dir.join(format!("{phone_number}.db"));
-    if final_db_path.exists() {
-        remove_link_db_files(config_dir, phone_number);
+    if tokio::fs::try_exists(&final_db_path).await.unwrap_or(false) {
+        remove_link_db_files(config_dir, phone_number).await;
     }
-    std::fs::rename(&db_path, &final_db_path)?;
-    let wal_path = config_dir.join(format!("{db_name}.db-wal"));
-    if wal_path.exists() {
-        std::fs::rename(&wal_path, config_dir.join(format!("{phone_number}.db-wal")))?;
-    }
-    let shm_path = config_dir.join(format!("{db_name}.db-shm"));
-    if shm_path.exists() {
-        std::fs::rename(&shm_path, config_dir.join(format!("{phone_number}.db-shm")))?;
+    tokio::fs::rename(&db_path, &final_db_path).await?;
+    for suffix in ["-wal", "-shm", "-journal"] {
+        let src = config_dir.join(format!("{db_name}.db{suffix}"));
+        if tokio::fs::try_exists(&src).await.unwrap_or(false) {
+            tokio::fs::rename(&src, config_dir.join(format!("{phone_number}.db{suffix}"))).await?;
+        }
     }
     Ok(())
 }
@@ -101,7 +100,12 @@ pub(crate) async fn run_register(
     println!("Please enter the verification code received (followed by enter):");
 
     let mut code = String::new();
-    std::io::stdin().read_line(&mut code)?;
+    {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        BufReader::new(tokio::io::stdin())
+            .read_line(&mut code)
+            .await?;
+    }
     let code = code.trim();
 
     if code.is_empty() {
@@ -130,13 +134,11 @@ pub(crate) async fn run_link(
     let device_name = name.unwrap_or_else(|| "signal-cli-rust".to_string());
 
     // Use active_account if provided, otherwise use a temporary file
-    let db_name = active_account
-        .clone()
-        .unwrap_or_else(|| "link_temp".to_string());
+    let db_name = active_account.clone().unwrap_or_else(new_link_temp_db_name);
     let db_path = config_dir.join(format!("{}.db", db_name));
 
-    if db_path.exists() {
-        remove_link_db_files(config_dir, &db_name);
+    if tokio::fs::try_exists(&db_path).await.unwrap_or(false) {
+        remove_link_db_files(config_dir, &db_name).await;
     }
 
     let store = open_or_create_sqlite_store(config_dir, &db_name)
@@ -199,7 +201,7 @@ pub(crate) async fn run_delete_local_account_data(
     let account = crate::utils::require_account(active_account)?;
     let db_path = config_dir.join(format!("{}.db", account));
 
-    if !db_path.exists() {
+    if !tokio::fs::try_exists(&db_path).await.unwrap_or(false) {
         println!("No local data found for account: {}", account);
         return Ok(());
     }
@@ -213,7 +215,7 @@ pub(crate) async fn run_delete_local_account_data(
         );
     }
 
-    std::fs::remove_file(&db_path)?;
+    remove_link_db_files(config_dir, &account).await;
     println!("Deleted local data for account: {}", account);
     Ok(())
 }

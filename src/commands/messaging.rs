@@ -1,7 +1,6 @@
 use anyhow::{Context, anyhow};
 use base64::prelude::*;
 use futures::{StreamExt, pin_mut};
-use std::io::Read;
 use std::path::{Path, PathBuf};
 
 use presage::Manager;
@@ -37,8 +36,9 @@ pub(crate) async fn run_send(
 
     let mut body_text = message;
     if message_from_stdin {
+        use tokio::io::AsyncReadExt;
         let mut buffer = String::new();
-        std::io::stdin().read_to_string(&mut buffer)?;
+        tokio::io::stdin().read_to_string(&mut buffer).await?;
         body_text = Some(buffer.trim().to_string());
     }
 
@@ -226,9 +226,9 @@ async fn upload_attachments<S: Store>(
                 data,
             ));
         } else {
-            // Handle local file path
+            // Handle local file path (async: do not block the executor).
             let path = PathBuf::from(path_or_uri);
-            let data = std::fs::read(&path)?;
+            let data = tokio::fs::read(&path).await?;
             attachment_specs.push((
                 AttachmentSpec {
                     content_type: mime_guess::from_path(&path)

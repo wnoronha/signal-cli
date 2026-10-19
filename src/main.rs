@@ -32,7 +32,7 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
     let config_dir = utils::get_config_dir(args.config.clone())?;
 
     // Ensure config directory exists
-    std::fs::create_dir_all(&config_dir)?;
+    tokio::fs::create_dir_all(&config_dir).await?;
 
     // 2. Identify available accounts
     let mut local_accounts = utils::find_local_accounts(&config_dir)?;

@@ -271,7 +271,7 @@ pub async fn run_json_rpc(
         } => {
             if let Some(path) = socket {
                 info!("Starting JSON-RPC on unix socket: {}", path);
-                let _ = std::fs::remove_file(&path);
+                let _ = tokio::fs::remove_file(&path).await;
                 let listener = UnixListener::bind(&path)?;
                 loop {
                     let (stream, _) = listener.accept().await?;
