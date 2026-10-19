@@ -5,7 +5,7 @@ use presage::Manager;
 use presage::manager::Registered;
 use presage::store::Store;
 
-pub(super) async fn load_registered_and_receive<S: Store + Send>(
+pub(crate) async fn load_registered_and_receive<S: Store + Send>(
     store: S,
 ) -> anyhow::Result<Manager<S, Registered>> {
     let manager = Manager::load_registered(store).await?;

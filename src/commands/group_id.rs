@@ -1,7 +1,7 @@
 use anyhow::bail;
 use base64::prelude::*;
 
-pub(super) fn parse_group_id(id_str: &str) -> anyhow::Result<[u8; 32]> {
+pub(crate) fn parse_group_id(id_str: &str) -> anyhow::Result<[u8; 32]> {
     if let Ok(bytes) = BASE64_STANDARD.decode(id_str)
         && bytes.len() == 32
     {

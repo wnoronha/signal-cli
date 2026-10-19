@@ -4,7 +4,7 @@
 This project is a Rust port of `signal-cli`. It uses the `presage` library for the Signal protocol.
 
 - `src/cli.rs`: Command-line interface definitions and command metadata.
-- `src/commands/`: Command implementations (`mod.rs`, `stubs.rs`, `runtime.rs`, `group_id.rs`).
+- `src/commands/`: `mod.rs` (dispatch), `account`, `devices`, `messaging`, `groups`, `contacts`, `media`, `stickers`, `stubs`, `runtime`, `group_id`.
 - `src/main.rs`: Orchestration and account selection logic.
 - `src/utils.rs`: Shared utilities for path resolution, account discovery, and recipient resolution.
 - `src/output.rs`: Unified output rendering logic (PlainText/JSON).

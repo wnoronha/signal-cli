@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.3-dev] - Unreleased
 
 ### Added
+- Split `src/commands/` into domain modules (account, messaging, groups, etc.); `mod.rs` holds dispatch only.
 - Command status matrix (`docs/command-status.adoc`) and daemon port notes (`docs/daemon-rust-port.adoc`).
 - `--log-file` support; JSON CLI errors aligned with JSON-RPC codes.
 - Split `src/commands/` modules; tests for group IDs and JSON-RPC models.
