@@ -21,7 +21,7 @@ use presage::manager::{Registered, RegistrationOptions};
 use presage::model::contacts::Contact;
 use presage::model::identity::OnNewIdentity;
 use presage::model::messages::Received;
-use presage::store::{ContentExt, Store, Thread};
+use presage::store::{Store, Thread};
 use presage_store_sqlite::SqliteStore;
 
 use crate::errors::SignalError;
@@ -159,7 +159,7 @@ pub async fn execute_command(
 ) -> anyhow::Result<()> {
     match args.command {
         crate::cli::Command::Version => {
-            println!("signal-cli 0.1.0 (Rust lightweight drop-in replacement)");
+            println!("signal-cli 0.1.1 (Rust lightweight drop-in replacement)");
             Ok(())
         }
 
@@ -818,7 +818,21 @@ pub(crate) async fn run_link(
     let link_rx_fut = async move {
         match provisioning_link_rx.await {
             Ok(url) => {
+                use qrcode::QrCode;
+                use qrcode::render::unicode;
                 println!("Please scan the QR code or use this URL to link your device:");
+                match QrCode::new(url.as_str()) {
+                    Ok(code) => {
+                        println!(
+                            "{}",
+                            code.render::<unicode::Dense1x2>()
+                                .quiet_zone(false)
+                                .module_dimensions(1, 1)
+                                .build()
+                        );
+                    }
+                    Err(e) => eprintln!("Failed to generate QR code: {:?}", e),
+                }
                 println!("{}", url);
             }
             Err(error) => {
@@ -1134,13 +1148,16 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
         match content {
             Received::QueueEmpty => break,
             Received::Contacts => {}
+            Received::DecryptionError(sid) => {
+                debug!("Decryption error from {}", sid.service_id_string());
+            }
             Received::Content(content) => {
                 debug!(
                     "Processing received message from {}",
                     content.metadata.sender.service_id_string()
                 );
                 let source_uuid = content.metadata.sender.service_id_string();
-                let timestamp = content.timestamp();
+                let timestamp = content.metadata.server_timestamp.timestamp_millis() as u64;
 
                 let data_message = if let ContentBody::DataMessage(dm) = content.body {
                     Some(DataMessageEnvelope {
