@@ -10,7 +10,6 @@ use presage_store_sqlite::SqliteStore;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
 use crate::cli::TrustMode;
