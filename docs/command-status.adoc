@@ -1,0 +1,65 @@
+= Command status (Rust port)
+
+This matrix tracks parity with https://github.com/AsamK/signal-cli[AsamK/signal-cli].
+Status values:
+
+* *Implemented* — works via `presage` in this repo
+* *Stub* — CLI/RPC exist; returns `Library limitation` or `Not implemented`
+* *Partial* — subset of flags or behavior
+
+== Account
+
+|===
+| Command | Status | Notes
+
+| `register`, `link` | Implemented | Verification is interactive during `register`
+| `verify` | Partial | Use `register` flow; subcommand prints guidance only
+| `listAccounts` | Implemented |
+| `deleteLocalAccountData` | Implemented | Does not unregister on server
+| `unregister`, `setPin`, `removePin` | Stub | Prints not-implemented message
+| `updateAccount`, `updateConfiguration`, change number | Stub | Account settings not in presage API
+|===
+
+== Messaging
+
+|===
+| Command | Status | Notes
+
+| `send`, `receive` | Implemented | Many `send` flags ignored (quotes, stories, etc.)
+| `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete` | Implemented |
+| `getAttachment`, `getAvatar` | Implemented |
+| Polls, pin messages, payments | Stub | JSON-RPC returns library limitation
+|===
+
+== Groups & contacts
+
+|===
+| Command | Status | Notes
+
+| `listGroups` | Implemented | Join/update/quit group stubbed
+| `listContacts`, `updateContact`, `updateProfile` | Implemented / partial |
+| `removeContact`, `block`, `unblock` | Stub |
+| `listIdentities`, `trust` | Stub |
+|===
+
+== Devices & stickers
+
+|===
+| Command | Status | Notes
+
+| `listDevices`, `removeDevice`, `addDevice` | Implemented / partial |
+| `listStickerPacks`, `addStickerPack`, `getSticker` | Implemented |
+| `uploadStickerPack` | Stub |
+|===
+
+== Daemon
+
+|===
+| Feature | Status | Notes
+
+| JSON-RPC over stdin, UNIX socket, TCP, HTTP | Implemented | See <<daemon-rust-port.adoc#>>
+| D-Bus daemon | Not implemented | Flags hidden for compatibility
+| Multi-account daemon without `-a` | Not implemented | Account required
+|===
+
+See also: link:faq.adoc[FAQ], link:getting-started.adoc[Getting started].

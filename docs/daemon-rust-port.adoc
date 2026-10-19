@@ -1,0 +1,39 @@
+= Daemon & JSON-RPC (Rust port notes)
+
+== Endpoints
+
+When `--http` is set (default `127.0.0.1:8080` if the flag is given without a value):
+
+* `POST /api/v1/rpc` — JSON-RPC 2.0 (single object or batch array)
+* `GET /api/v1/events` — Server-Sent Events for incoming messages
+* `GET /api/v1/check` — liveness (`OK`)
+
+`--tcp` and `--socket` bind to the address or path you provide (defaults: `127.0.0.1:8080`, `/tmp/signal-cli.sock`).
+
+Only bind to interfaces you trust. There is no built-in authentication on the HTTP/TCP API.
+
+== Receive behavior
+
+* *CLI one-shot commands* — Many commands call an internal background receive loop to drain the queue while the command runs (`load_registered_and_receive` in `src/commands/runtime.rs`). This is not the same as daemon mode.
+* *Daemon / jsonRpc* — A long-lived receive stream feeds SSE notifications and handles RPC on a single manager per account.
+
+== Flags accepted but not implemented
+
+For compatibility with Java signal-cli, these daemon/`receive` flags are parsed but ignored in this Rust port:
+
+* `--ignore-attachments`, `--ignore-stories`, `--ignore-avatars`, `--ignore-stickers`
+* `--send-read-receipts`
+* `--receive-mode`, `--no-receive-stdout`
+* `--dbus`, `--dbus-system`, `--bus-name` (use JSON-RPC instead)
+
+== Trust policy
+
+Global `--trust-new-identities` applies when opening SQLite stores during a command or daemon session.
+`Never` maps to presage `Reject`; `on-first-use` and `always` map to `Trust` (presage has no finer granularity).
+
+== JSON-RPC methods
+
+Implemented methods call `core_*` handlers with the loaded manager.
+Stub methods return JSON-RPC error code `-32005` (library limitation), not account errors.
+
+See `src/rpc/handler.rs` for the method list and link:signal-cli-jsonrpc.5.adoc[signal-cli-jsonrpc(5)] for upstream API documentation.

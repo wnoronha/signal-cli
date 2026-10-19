@@ -22,4 +22,16 @@ Some commands need functions that `presage` does not expose yet (for example gro
 SQLite files in `~/.local/share/signal-cli/`, named `+<phone>.db`. Use `--config <path>` to change the location.
 
 === How do I get more logs?
-Add `-v` (or `--verbose`) to any command.
+Add `-v` (or `--verbose`) to any command. Use `--log-file /path/to/log` to append tracing output to a file. `--scrub-log` is not implemented yet; verbose logs may include metadata from presage.
+
+=== Why does `--trust-new-identities never` matter?
+It maps to presage rejecting unknown identity keys when opening the account database. `on-first-use` and `always` both trust new keys (presage has no finer policy).
+
+=== Daemon JSON-RPC quick test
+[source,bash]
+----
+signal-cli -a +1234567890 daemon --socket /tmp/signal.sock
+python3 scripts/signal-cli-test.py --socket /tmp/signal.sock
+----
+
+HTTP mode defaults to `127.0.0.1:8080` when `--http` is passed without a value. See link:daemon-rust-port.adoc[daemon Rust port notes].

@@ -63,7 +63,7 @@ Test scripts are in `scripts/` (e.g. `python3 scripts/signal-cli-test.py --socke
 signal-cli --help
 ```
 
-Reference docs are in `docs/`: `signal-cli.1.adoc` (all commands), `signal-cli-jsonrpc.5.adoc` (daemon API), `getting-started.adoc`, `faq.adoc`.
+Reference docs are in `docs/`: `signal-cli.1.adoc` (all commands), `signal-cli-jsonrpc.5.adoc` (daemon API), `getting-started.adoc`, `faq.adoc`, `command-status.adoc` (implemented vs stub), `daemon-rust-port.adoc` (HTTP/SSE and flag behavior).
 
 ## Data storage
 

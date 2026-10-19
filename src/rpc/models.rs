@@ -224,3 +224,38 @@ pub struct GetAvatarParams {
     pub profile: Option<String>,
     pub group_id: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_params_recipient_scalar_or_vec() {
+        let scalar: SendParams = serde_json::from_value(serde_json::json!({
+            "recipient": "+15551234567",
+            "message": "hi"
+        }))
+        .unwrap();
+        assert_eq!(scalar.recipient, Some(vec!["+15551234567".to_string()]));
+
+        let vec_form: SendParams = serde_json::from_value(serde_json::json!({
+            "recipient": ["+1", "+2"],
+            "message": "hi"
+        }))
+        .unwrap();
+        assert_eq!(vec_form.recipient.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn json_rpc_request_round_trip() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "listGroups".to_string(),
+            params: None,
+            id: Some(serde_json::json!("id-1")),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: JsonRpcRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.method, "listGroups");
+    }
+}

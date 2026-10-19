@@ -38,28 +38,33 @@ pub struct Cli {
     )]
     pub verbose: bool,
 
-    #[clap(long = "log-file", help = "Write log output to the given file")]
+    #[clap(
+        long = "log-file",
+        help = "Append tracing log output to this file (default: stderr only)"
+    )]
     pub log_file: Option<PathBuf>,
 
     #[clap(
         long = "scrub-log",
-        help = "Scrub possibly sensitive information from the log"
+        hide = true,
+        help = "Not implemented in this Rust port (accepted for CLI compatibility)"
     )]
     pub scrub_log: bool,
 
-    #[clap(long = "dbus", help = "Make request via user dbus")]
+    #[clap(
+        long = "dbus",
+        hide = true,
+        help = "Not implemented: use daemon JSON-RPC instead"
+    )]
     pub dbus: bool,
 
-    #[clap(long = "dbus-system", help = "Make request via system dbus")]
+    #[clap(long = "dbus-system", hide = true)]
     pub dbus_system: bool,
 
-    #[clap(
-        long = "bus-name",
-        help = "Connect to another D-Bus bus name than the default"
-    )]
+    #[clap(long = "bus-name", hide = true)]
     pub bus_name: Option<String>,
 
-    #[clap(long = "disable-send-log", help = "Disable message send log")]
+    #[clap(long = "disable-send-log", hide = true)]
     pub disable_send_log: bool,
 
     #[clap(subcommand)]
@@ -939,10 +944,10 @@ pub enum Command {
         )]
         http: Option<String>,
 
-        #[clap(long = "dbus")]
+        #[clap(long = "dbus", hide = true)]
         dbus: bool,
 
-        #[clap(long = "dbus-system")]
+        #[clap(long = "dbus-system", hide = true)]
         dbus_system: bool,
 
         #[clap(long = "bus-name")]

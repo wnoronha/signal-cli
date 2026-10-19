@@ -11,13 +11,15 @@ use tracing::{error, info};
 #[tokio::main]
 async fn main() {
     let args = cli::Cli::parse();
-    utils::init_tracing(args.verbose);
+    utils::init_tracing(args.verbose, args.log_file.clone(), args.scrub_log);
 
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
             if let Err(err) = run(args).await {
-                error!("{err:#}");
+                if err.downcast_ref::<output::ErrorReported>().is_none() {
+                    error!("{err:#}");
+                }
                 std::process::exit(1);
             }
         })

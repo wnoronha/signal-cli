@@ -1,5 +1,46 @@
 use crate::cli::OutputMode;
+use crate::errors::SignalError;
 use serde::{Deserialize, Serialize};
+
+/// Marker: [`render_command_error`] already wrote the failure to stdout/stderr.
+#[derive(Debug)]
+pub struct ErrorReported;
+
+impl std::fmt::Display for ErrorReported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("command error already reported")
+    }
+}
+
+impl std::error::Error for ErrorReported {}
+
+#[derive(Serialize)]
+struct CliErrorBody {
+    error: String,
+    code: i32,
+}
+
+/// Emit a command failure in plain text or JSON (aligned with JSON-RPC error codes).
+pub fn render_command_error(err: &anyhow::Error, mode: OutputMode) {
+    let (code, message) = if let Some(signal_err) = err.downcast_ref::<SignalError>() {
+        (signal_err.json_rpc_code(), signal_err.to_string())
+    } else {
+        (-32603, err.to_string())
+    };
+    match mode {
+        OutputMode::PlainText => eprintln!("{message}"),
+        OutputMode::Json => {
+            let body = CliErrorBody {
+                error: message,
+                code,
+            };
+            println!(
+                "{}",
+                serde_json::to_string(&body).unwrap_or_else(|_| "{\"error\":\"unknown\"}".into())
+            );
+        }
+    }
+}
 
 /// A trait for types that can be rendered to the console in multiple formats.
 pub trait Render: Serialize {

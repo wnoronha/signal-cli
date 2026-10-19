@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.3-dev] - Unreleased
 
+### Added
+- Command status matrix (`docs/command-status.adoc`) and daemon port notes (`docs/daemon-rust-port.adoc`).
+- `--log-file` support; JSON CLI errors aligned with JSON-RPC codes.
+- Split `src/commands/` modules; tests for group IDs and JSON-RPC models.
+- macOS aarch64 release artifact in CI; optional `cargo audit` job.
+
 ### Fixed
 - JSON-RPC: stub methods return library-limitation errors instead of "Account not specified".
 - JSON-RPC: `unblock` routes to the unblock handler (not `block`).

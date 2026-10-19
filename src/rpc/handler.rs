@@ -1,3 +1,6 @@
+//! JSON-RPC method dispatch. Implemented methods use `commands::core_*`; stubs use `commands::core_*` in `stubs.rs`.
+//! Upstream API reference: `docs/signal-cli-jsonrpc.5.adoc`.
+
 use crate::commands;
 use crate::errors::SignalError;
 use crate::rpc::models::*;

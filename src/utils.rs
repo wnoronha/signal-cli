@@ -38,11 +38,7 @@ pub fn push_store_identity(mode: TrustMode) -> StoreIdentityGuard {
 }
 
 fn active_store_identity() -> OnNewIdentity {
-    ACTIVE_STORE_IDENTITY.with(|c| {
-        c.borrow()
-            .clone()
-            .unwrap_or(OnNewIdentity::Trust)
-    })
+    ACTIVE_STORE_IDENTITY.with(|c| c.borrow().clone().unwrap_or(OnNewIdentity::Trust))
 }
 
 /// Current store identity policy (for registration/link paths that open SQLite directly).
@@ -51,7 +47,13 @@ pub fn current_store_identity() -> OnNewIdentity {
 }
 
 /// Initialize the tracing subscriber for structured logging.
-pub fn init_tracing(verbose: bool) {
+pub fn init_tracing(verbose: bool, log_file: Option<PathBuf>, scrub_log: bool) {
+    if scrub_log {
+        eprintln!(
+            "warning: --scrub-log is not implemented yet; log lines may contain phone numbers or message metadata when using -v"
+        );
+    }
+
     let filter = if verbose {
         EnvFilter::new("debug,presage=debug,libsignal_service=debug")
     } else {
@@ -61,14 +63,30 @@ pub fn init_tracing(verbose: bool) {
             .add_directive("libsignal_service=warn".parse().unwrap())
     };
 
-    fmt()
+    let builder = fmt()
         .with_env_filter(filter)
         .with_target(false)
         .with_thread_ids(false)
         .with_file(false)
-        .with_line_number(false)
-        .with_writer(std::io::stderr)
-        .init();
+        .with_line_number(false);
+
+    if let Some(path) = log_file {
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
+            Ok(file) => {
+                builder.with_writer(file).init();
+            }
+            Err(e) => {
+                eprintln!("warning: could not open --log-file: {e}; using stderr");
+                builder.with_writer(std::io::stderr).init();
+            }
+        }
+    } else {
+        builder.with_writer(std::io::stderr).init();
+    }
 }
 
 /// Get the configuration directory, either from the provided path or the default location.
@@ -143,18 +161,28 @@ pub async fn open_sqlite_store(
     config_dir: &Path,
     account: &str,
 ) -> Result<SqliteStore, SignalError> {
-    let on_new_identity = active_store_identity();
     let db_path = config_dir.join(format!("{}.db", account));
     if !db_path.exists() {
         return Err(SignalError::AccountNotFound(account.to_string()));
     }
+    open_sqlite_at_path(&db_path).await
+}
 
+/// Open or create the account database (registration and linking).
+pub async fn open_or_create_sqlite_store(
+    config_dir: &Path,
+    account: &str,
+) -> Result<SqliteStore, SignalError> {
+    let db_path = config_dir.join(format!("{}.db", account));
+    open_sqlite_at_path(&db_path).await
+}
+
+async fn open_sqlite_at_path(db_path: &Path) -> Result<SqliteStore, SignalError> {
+    let on_new_identity = active_store_identity();
     info!("Opening account database: {:?}", db_path);
-
-    let store = SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, on_new_identity)
+    SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, on_new_identity)
         .await
-        .map_err(|e| SignalError::StoreError(e.to_string()))?;
-    Ok(store)
+        .map_err(|e| SignalError::StoreError(e.to_string()))
 }
 
 /// Render an attachment identifier as the plain ID string that

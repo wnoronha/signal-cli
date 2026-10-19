@@ -6,6 +6,17 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::UNIX_EPOCH;
 
+use crate::errors::SignalError;
+use crate::output::render_command_error;
+use crate::output::{
+    AccountList, AttachmentEnvelope, ContactInfo, ContactList, DataMessageEnvelope, DeviceInfo,
+    DeviceList, GroupInfo, GroupList, MediaData, ProfileInfo, ReceiveEnvelope,
+    Render, SendResult, StickerInfo, StickerPackInfo, StickerPackList, SuccessResult, UserStatus,
+};
+use crate::utils::{
+    find_local_accounts, open_or_create_sqlite_store, open_sqlite_store, parse_sticker_pack_uri,
+    push_store_identity, resolve_recipient,
+};
 use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::{ContentBody, DataMessage, GroupContextV2};
@@ -21,18 +32,16 @@ use presage::manager::{Registered, RegistrationOptions};
 use presage::model::contacts::Contact;
 use presage::model::messages::Received;
 use presage::store::{Store, Thread};
-use presage_store_sqlite::SqliteStore;
 
-use crate::errors::SignalError;
-use crate::output::{
-    AccountList, AttachmentEnvelope, ContactInfo, ContactList, DataMessageEnvelope, DeviceInfo,
-    DeviceList, GroupInfo, GroupList, IdentityInfo, MediaData, ProfileInfo, ReceiveEnvelope,
-    Render, SendResult, StickerInfo, StickerPackInfo, StickerPackList, SuccessResult, UserStatus,
-};
-use crate::utils::{
-    current_store_identity, find_local_accounts, open_sqlite_store, parse_sticker_pack_uri,
-    push_store_identity, resolve_recipient,
-};
+mod group_id;
+mod runtime;
+mod stubs;
+
+use group_id::parse_group_id;
+use runtime::load_registered_and_receive;
+
+pub(crate) use stubs::*;
+
 pub(crate) async fn run_list_sticker_packs(
     config_dir: &Path,
     active_account: Option<String>,
@@ -152,19 +161,14 @@ pub(crate) async fn run_upload_sticker_pack(
     core_upload_sticker_pack().await
 }
 
-pub(crate) async fn core_upload_sticker_pack() -> anyhow::Result<SuccessResult> {
-    Err(SignalError::LibraryLimitation(
-        "uploadStickerPack is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
 pub async fn execute_command(
     args: crate::cli::Cli,
     config_dir: PathBuf,
     active_account: Option<String>,
 ) -> anyhow::Result<()> {
+    let output = args.output;
     let _store_identity = push_store_identity(args.trust_new_identities);
-    match args.command {
+    let result = match args.command {
         crate::cli::Command::Version => {
             println!(
                 "signal-cli {} (Rust lightweight drop-in replacement)",
@@ -198,9 +202,9 @@ pub async fn execute_command(
             verification_code: _,
             pin: _,
         } => {
-            println!("Verification is performed interactively during registration.");
-            println!("Please run: signal-cli -a <PHONE> register");
-            println!("And enter the verification code when prompted.");
+            println!(
+                "The verify subcommand is not used in this Rust port: run `register` and enter the SMS/voice code when prompted."
+            );
             Ok(())
         }
 
@@ -707,7 +711,12 @@ pub async fn execute_command(
         crate::cli::Command::SubmitRateLimitChallenge { .. }
         | crate::cli::Command::SendAdminDelete { .. }
         | crate::cli::Command::UpdateDevice { .. } => not_implemented(args.command.name()),
+    };
+    if let Err(err) = &result {
+        render_command_error(err, output);
+        return Err(anyhow::Error::new(crate::output::ErrorReported));
     }
+    result
 }
 
 fn not_implemented(name: &str) -> anyhow::Result<()> {
@@ -735,13 +744,9 @@ pub(crate) async fn run_register(
         crate::cli::ServiceEnvironment::Staging => SignalServers::Staging,
     };
 
-    let db_path = config_dir.join(format!("{}.db", account));
-    let store = SqliteStore::open_with_passphrase(
-        db_path.to_str().unwrap(),
-        None,
-        current_store_identity(),
-    )
-    .await?;
+    let store = open_or_create_sqlite_store(config_dir, &account)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     let phone_number = PhoneNumber::from_str(&account)
         .map_err(|e| anyhow!("Invalid E.164 phone number: {:?}", e))?;
@@ -803,12 +808,9 @@ pub(crate) async fn run_link(
         let _ = std::fs::remove_file(config_dir.join(format!("{}.db-shm", db_name)));
     }
 
-    let store = SqliteStore::open_with_passphrase(
-        db_path.to_str().unwrap(),
-        None,
-        current_store_identity(),
-    )
-    .await?;
+    let store = open_or_create_sqlite_store(config_dir, &db_name)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
 
     let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
     println!("Linking secondary device...");
@@ -1250,183 +1252,6 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
     Ok(GroupList { groups, detailed })
 }
 
-pub(crate) async fn core_list_identities() -> anyhow::Result<Vec<IdentityInfo>> {
-    Err(SignalError::LibraryLimitation(
-        "listIdentities is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_list_identities(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Option<String>,
-) -> anyhow::Result<Vec<IdentityInfo>> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_list_identities().await
-}
-
-pub(crate) async fn core_trust() -> anyhow::Result<SuccessResult> {
-    Err(SignalError::LibraryLimitation(
-        "Manual trust management is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_trust(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: String,
-    _trust_level: String,
-) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_trust().await
-}
-
-pub(crate) async fn run_remove_contact(
-    config_dir: &Path,
-    active_account: Option<String>,
-    recipient: String,
-) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
-    core_remove_contact(&mut manager, recipient).await
-}
-
-#[tracing::instrument(skip(manager))]
-pub(crate) async fn core_remove_contact<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-    recipient: String,
-) -> anyhow::Result<SuccessResult> {
-    let _service_id = resolve_recipient(manager, &recipient).await?;
-    Err(SignalError::LibraryLimitation(
-        "removeContact is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn core_send_poll_create() -> anyhow::Result<SendResult> {
-    Err(SignalError::LibraryLimitation(
-        "Poll creation is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_poll_create(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Option<String>,
-    _question: String,
-    _options: Vec<String>,
-    _multiple_answers: bool,
-) -> anyhow::Result<SendResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_send_poll_create().await
-}
-
-pub(crate) async fn core_send_poll_vote() -> anyhow::Result<SendResult> {
-    Err(
-        SignalError::LibraryLimitation("Poll voting is not yet supported by presage.".to_string())
-            .into(),
-    )
-}
-
-pub(crate) async fn run_send_poll_vote(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Option<String>,
-    _target_timestamp: i64,
-    _choices: Vec<i32>,
-) -> anyhow::Result<SendResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_send_poll_vote().await
-}
-
-pub(crate) async fn core_send_poll_terminate() -> anyhow::Result<SendResult> {
-    Err(SignalError::LibraryLimitation(
-        "Poll termination is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_poll_terminate(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Option<String>,
-    _target_timestamp: i64,
-) -> anyhow::Result<SendResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_send_poll_terminate().await
-}
-
-pub(crate) async fn core_block() -> anyhow::Result<SuccessResult> {
-    Err(
-        SignalError::LibraryLimitation("Blocking is not yet supported by presage.".to_string())
-            .into(),
-    )
-}
-
-pub(crate) async fn run_block(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Vec<String>,
-) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_block().await
-}
-
-pub(crate) async fn core_unblock() -> anyhow::Result<SuccessResult> {
-    Err(
-        SignalError::LibraryLimitation("Unblocking is not yet supported by presage.".to_string())
-            .into(),
-    )
-}
-
-pub(crate) async fn run_unblock(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Vec<String>,
-) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_unblock().await
-}
-
-pub(crate) async fn core_send_contacts() -> anyhow::Result<SuccessResult> {
-    Err(
-        SignalError::LibraryLimitation("sendContacts is not yet supported by presage.".to_string())
-            .into(),
-    )
-}
-
-pub(crate) async fn run_send_contacts(
-    _config_dir: &Path,
-    active_account: Option<String>,
-) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_send_contacts().await
-}
-
-pub(crate) async fn core_send_sync_request() -> anyhow::Result<SuccessResult> {
-    Err(SignalError::LibraryLimitation(
-        "sendSyncRequest is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_sync_request(
-    _config_dir: &Path,
-    active_account: Option<String>,
-) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_send_sync_request().await
-}
-
 pub(crate) async fn run_list_contacts(
     config_dir: &Path,
     active_account: Option<String>,
@@ -1504,50 +1329,6 @@ pub(crate) async fn core_update_profile<S: Store + Send + 'static>(
         )
         .into())
     }
-}
-
-async fn load_registered_and_receive<S: Store + Send>(
-    store: S,
-) -> anyhow::Result<Manager<S, Registered>> {
-    let manager = Manager::load_registered(store).await?;
-    let manager_receive = manager.clone();
-    tokio::task::spawn_local(receive_loop(manager_receive));
-    Ok(manager)
-}
-
-async fn receive_loop<S: Store>(mut manager: Manager<S, Registered>) {
-    use tracing::{debug, warn};
-    debug!("Starting background receive loop");
-    match manager.receive_messages().await {
-        Ok(messages) => {
-            pin_mut!(messages);
-            while let Some(content) = messages.next().await {
-                debug!("Received background message: {:?}", content);
-            }
-            debug!("Background receive loop finished (queue empty)");
-        }
-        Err(e) => {
-            warn!("Background receive loop failed: {:?}", e);
-        }
-    }
-}
-
-fn parse_group_id(id_str: &str) -> anyhow::Result<[u8; 32]> {
-    if let Ok(bytes) = BASE64_STANDARD.decode(id_str)
-        && bytes.len() == 32
-    {
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&bytes);
-        return Ok(key);
-    }
-    if let Ok(bytes) = hex::decode(id_str)
-        && bytes.len() == 32
-    {
-        let mut key = [0u8; 32];
-        key.copy_from_slice(&bytes);
-        return Ok(key);
-    }
-    anyhow::bail!("Invalid group ID. Must be 32-byte hex or base64 encoded string.")
 }
 
 async fn upload_attachments<S: Store>(

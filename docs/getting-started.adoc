@@ -74,6 +74,17 @@ Send a request (example with `socat`):
 echo '{"jsonrpc":"2.0","method":"listGroups","id":1}' | socat - UNIX-CONNECT:/tmp/signal.sock
 ----
 
+HTTP mode (default bind `127.0.0.1:8080` when `--http` has no value):
+
+[source,bash]
+----
+signal-cli -a +1234567890 daemon --http
+curl -s http://127.0.0.1:8080/api/v1/check
+curl -N http://127.0.0.1:8080/api/v1/events
+----
+
+See link:daemon-rust-port.adoc[daemon Rust port notes] for endpoints and unsupported flags.
+
 == 6. Test scripts
 
 `scripts/` has Python tools to test the daemon:

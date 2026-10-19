@@ -38,6 +38,16 @@ jobs:
       - name: Run tests
         run: cargo test
 
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-audit --locked 2>/dev/null || cargo install cargo-audit
+      - run: cargo audit
+
   build_and_package:
     name: Build & Package
     needs: lint_and_test
@@ -52,6 +62,10 @@ jobs:
             target: x86_64-apple-darwin
             artifact_name: signal-cli-macos-x86_64
             archive_suffix: macOS-x86_64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: signal-cli-macos-aarch64
+            archive_suffix: macOS-aarch64
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             artifact_name: signal-cli-linux-aarch64
@@ -69,10 +83,12 @@ jobs:
         run: brew install sqlite pkg-config protobuf cmake openssl
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust target
+        run: rustup target add ${{ matrix.target }}
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
       - name: Build release
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.target }}
       
       - name: Package Release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -81,7 +97,7 @@ jobs:
           VERSION=${GITHUB_REF_NAME}
           ARCHIVE_NAME="signal-cli-${VERSION}-${{ matrix.archive_suffix }}.tar.gz"
           mkdir -p dist
-          cp target/release/signal-cli dist/
+          cp target/${{ matrix.target }}/release/signal-cli dist/
           cp README.md LICENSE dist/
           cp -r docs dist/
           tar -czvf ${ARCHIVE_NAME} -C dist .
