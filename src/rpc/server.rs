@@ -198,7 +198,7 @@ pub async fn run_json_rpc(
                                 source_uuid: Some(source_uuid),
                                 source_name: None,
                                 source_device: Some(content.metadata.sender_device.into()),
-                                timestamp: content.metadata.timestamp,
+                                timestamp: content.metadata.server_timestamp.timestamp_millis() as u64,
                                 server_received_timestamp: None, // Need to find where presage stores this
                                 server_delivered_timestamp: None,
                                 data_message: if let ContentBody::DataMessage(dm) = &content.body {
@@ -278,6 +278,9 @@ pub async fn run_json_rpc(
                             if let Ok(json) = serde_json::to_string(&notification) {
                                 let _ = n_tx.send(json);
                             }
+                        } else if received_res.is_none() {
+                            warn!("Message stream ended.");
+                            break;
                         }
                     }
                     Some(rpc_msg) = rpc_rx.recv() => {

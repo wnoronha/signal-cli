@@ -30,6 +30,7 @@ pub fn init_tracing(verbose: bool) {
         .with_thread_ids(false)
         .with_file(false)
         .with_line_number(false)
+        .with_writer(std::io::stderr)
         .init();
 }
 
