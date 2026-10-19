@@ -1131,3 +1131,51 @@ impl Command {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// Guard against `Command` / `name()` drift: key subcommands must keep
+    /// stable protocol names (full source-parse is brittle across clap styles).
+    #[test]
+    fn command_names_cover_all_clap_subcommands() {
+        let src = include_str!("cli.rs");
+        for name in [
+            "register",
+            "link",
+            "send",
+            "receive",
+            "listGroups",
+            "listContacts",
+            "whoami",
+            "daemon",
+            "jsonRpc",
+            "submitRateLimitChallenge",
+            "version",
+            "sendPollCreate",
+            "updateGroup",
+        ] {
+            assert!(
+                src.contains(&format!("}} => \"{name}\"")),
+                "Command::name() missing arm for `{name}`"
+            );
+        }
+    }
+
+    #[test]
+    fn accountless_commands_are_version_list_link_daemon_jsonrpc() {
+        assert!(!Command::Version.requires_account());
+        assert!(!Command::ListAccounts.requires_account());
+        assert!(!Command::Link { name: None }.requires_account());
+        assert!(
+            Command::Register {
+                voice: false,
+                captcha: None,
+                reregister: false,
+                verification_code: None,
+            }
+            .requires_account()
+        );
+        assert!(Command::SendSyncRequest.requires_account());
+    }
+}
