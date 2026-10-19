@@ -25,7 +25,7 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 | `register`, `link` | Implemented | `register`, `link_secondary_device` | CLI: verification is interactive during `register`
 | `verify` | Partial | `confirm_verification_code` (via `register`) | CLI: non-zero; use `register` for codes
 | `listAccounts` | Implemented | local DB | |
-| `deleteLocalAccountData` | Implemented | local DB | CLI: removes local DB only; does not unregister on server
+| `deleteLocalAccountData` | Implemented | local DB | CLI: removes `.db` + `-wal`/`-shm`/`-journal`; does not unregister on server
 | `unregister` | Partial | `unlink_self`, `unlink_secondary` | CLI: secondary unlinks self; primary unlinks all secondaries; `--delete-account` stub
 | `whoami` | Implemented | `whoami` | CLI + JSON-RPC
 | `clearSessions`, `sendSessionReset` | Implemented | `clear_sessions`, `send_session_reset` | CLI + JSON-RPC
@@ -78,6 +78,8 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 | JSON-RPC over stdin, UNIX socket, TCP, HTTP | Implemented | one `Manager` per account | Daemon: see link:daemon-rust-port.adoc[]
 | D-Bus daemon | Not implemented | n/a | Compat: warn; use JSON-RPC
 | Multi-account daemon without `-a` | Implemented | one manager per `+.db` | Daemon: `params.account`, `listAccounts`, `startLink`/`finishLink`
+| `subscribeReceive`, `unsubscribeReceive` | Stub (always-Ok) | n/a | Daemon always receives in background; no subscription tracking
+| `version` | Implemented | n/a | CLI-only; plain-text (not `--output json`)
 |===
 
 See also: link:faq.adoc[FAQ], link:getting-started.adoc[Getting started], link:presage-deps.md[Presage mapping].
