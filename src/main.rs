@@ -46,26 +46,20 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
         let account = args.account.clone().ok_or_else(|| {
             anyhow::anyhow!("The register command requires the --account / -a parameter to specify your phone number.")
         })?;
-        if !account.starts_with('+') {
-            anyhow::bail!("Account phone number must start with '+' (E.164 format).");
-        }
+        utils::validate_account_name(&account).map_err(|e| anyhow::anyhow!(e))?;
         Some(account)
     } else if matches!(
         args.command,
         crate::cli::Command::Daemon { .. } | crate::cli::Command::JsonRpc { .. }
     ) {
         if let Some(ref account) = args.account {
-            if !account.starts_with('+') {
-                anyhow::bail!("Account phone number must start with '+' (E.164 format).");
-            }
+            utils::validate_account_name(account).map_err(|e| anyhow::anyhow!(e))?;
             Some(account.clone())
         } else {
             None
         }
     } else if let Some(ref account) = args.account {
-        if !account.starts_with('+') {
-            anyhow::bail!("Account phone number must start with '+' (E.164 format).");
-        }
+        utils::validate_account_name(account).map_err(|e| anyhow::anyhow!(e))?;
         Some(account.clone())
     } else {
         // Check local accounts count

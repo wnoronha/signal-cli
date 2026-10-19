@@ -82,9 +82,7 @@ impl DaemonContext {
     }
 
     pub async fn manager_for(&self, account: &str) -> Result<ManagerHandle> {
-        if !account.starts_with('+') {
-            anyhow::bail!("Account must be E.164 format starting with '+'");
-        }
+        crate::utils::validate_account_name(account).map_err(|e| anyhow!(e))?;
         let mut map = self.managers.lock().await;
         if let Some(existing) = map.get(account) {
             return Ok(existing.clone());

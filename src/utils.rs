@@ -209,20 +209,45 @@ pub async fn open_sqlite_store(
     config_dir: &Path,
     account: &str,
 ) -> Result<SqliteStore, SignalError> {
-    let db_path = config_dir.join(format!("{}.db", account));
-    if !db_path.exists() {
-        return Err(SignalError::AccountNotFound(account.to_string()));
+    validate_account_name(account)?;
+    let db_path = config_dir.join(format!("{account}.db"));
+    if tokio::fs::try_exists(&db_path)
+        .await
+        .map_err(|e| SignalError::StoreError(e.to_string()))?
+    {
+        open_sqlite_at_path(&db_path).await
+    } else {
+        Err(SignalError::AccountNotFound(account.to_string()))
     }
-    open_sqlite_at_path(&db_path).await
 }
 
 /// Open or create the account database (registration and linking).
+/// `account` may be an E.164 name or an internal `link_temp_*` name.
 pub async fn open_or_create_sqlite_store(
     config_dir: &Path,
     account: &str,
 ) -> Result<SqliteStore, SignalError> {
-    let db_path = config_dir.join(format!("{}.db", account));
+    validate_db_name(account)?;
+    let db_path = config_dir.join(format!("{account}.db"));
     open_sqlite_at_path(&db_path).await
+}
+
+/// Validate internal DB names (`+E.164` or `link_temp_*` with safe charset).
+pub fn validate_db_name(name: &str) -> Result<(), SignalError> {
+    if name.starts_with('+') {
+        return validate_account_name(name);
+    }
+    if let Some(rest) = name.strip_prefix("link_temp")
+        && (rest.is_empty() || rest.starts_with('_'))
+        && !name.contains(['/', '\\', '\0'])
+        && !name.contains("..")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return Ok(());
+    }
+    Err(SignalError::AccountNotFound(name.to_string()))
 }
 
 async fn open_sqlite_at_path(db_path: &Path) -> Result<SqliteStore, SignalError> {
