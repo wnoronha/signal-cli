@@ -6,17 +6,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow};
-use futures::channel::oneshot;
+use futures::{StreamExt, channel::oneshot, pin_mut};
 use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::manager::Registered;
+use presage::model::messages::Received;
 use presage_store_sqlite::SqliteStore;
 use serde_json::{Value, json};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
+use tracing::warn;
 
 use crate::commands::{
-    finalize_link_database, load_registered_and_receive, new_link_temp_db_name,
-    remove_link_db_files,
+    build_receive_envelope, finalize_link_database, load_registered_and_receive,
+    new_link_temp_db_name, remove_link_db_files,
 };
 use crate::utils::{find_local_accounts, open_or_create_sqlite_store, open_sqlite_store};
 
@@ -50,6 +52,7 @@ pub struct DaemonContext {
     trust_mode: crate::cli::TrustMode,
     managers: Mutex<HashMap<String, ManagerHandle>>,
     link_session: Mutex<Option<PendingLink>>,
+    notifier: Mutex<Option<broadcast::Sender<String>>>,
 }
 
 impl DaemonContext {
@@ -64,7 +67,14 @@ impl DaemonContext {
             trust_mode,
             managers: Mutex::new(HashMap::new()),
             link_session: Mutex::new(None),
+            notifier: Mutex::new(None),
         })
+    }
+
+    /// Register the broadcast channel used for `receive` push notifications.
+    /// Called once at daemon startup so later-linked accounts get live loops.
+    pub async fn set_notifier(&self, tx: broadcast::Sender<String>) {
+        *self.notifier.lock().await = Some(tx);
     }
 
     pub fn accounts_for_receive(&self) -> Result<Vec<String>> {
@@ -185,11 +195,44 @@ impl DaemonContext {
             .map_err(|_| anyhow!("Timed out waiting for primary device to approve linking"))?
             .map_err(|_| anyhow!("Link task ended unexpectedly"))??;
 
-        // Warm the manager cache so the new account is usable without a
-        // daemon restart. Push `receive` notifications still require a
-        // restart (loops are spawned at startup in `run_json_rpc`).
+        // Warm the manager cache so the new account is usable immediately,
+        // and spawn a live push loop when the daemon has a notifier.
         drop(session);
-        let _ = self.manager_for(&phone_number).await;
+        if let Ok(handle) = self.manager_for(&phone_number).await {
+            if let Some(tx) = self.notifier.lock().await.clone() {
+                let mut receive_manager = handle.lock().await.clone();
+                let account = phone_number.clone();
+                tokio::task::spawn_local(async move {
+                    let Ok(messages) = receive_manager.receive_messages().await else {
+                        return;
+                    };
+                    pin_mut!(messages);
+                    while let Some(res) = messages.next().await {
+                        if let Received::Content(content) = res {
+                            let envelope = build_receive_envelope(&receive_manager, &content).await;
+                            let mut params = serde_json::Map::new();
+                            params.insert(
+                                "envelope".to_string(),
+                                serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null),
+                            );
+                            params.insert(
+                                "account".to_string(),
+                                serde_json::Value::String(account.clone()),
+                            );
+                            let notification = crate::rpc::models::JsonRpcNotification {
+                                jsonrpc: "2.0".to_string(),
+                                method: "receive".to_string(),
+                                params: Some(serde_json::Value::Object(params)),
+                            };
+                            if let Ok(json) = serde_json::to_string(&notification) {
+                                let _ = tx.send(json);
+                            }
+                        }
+                    }
+                    warn!(%account, "Message stream ended for account");
+                });
+            }
+        }
 
         Ok(json!({ "deviceLinkUri": device_link_uri }))
     }

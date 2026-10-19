@@ -237,6 +237,7 @@ pub async fn run_json_rpc(
     let (notification_tx, _) = broadcast::channel::<String>(100);
     let (rpc_tx, mut rpc_rx) = mpsc::channel::<RpcRequestMessage>(32);
 
+    ctx.set_notifier(notification_tx.clone()).await;
     for account in ctx.accounts_for_receive()? {
         spawn_receive_loop(ctx.clone(), account, notification_tx.clone());
     }
