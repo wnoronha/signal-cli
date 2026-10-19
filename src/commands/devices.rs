@@ -7,10 +7,12 @@ use presage::manager::Registered;
 use presage::store::Store;
 use std::str::FromStr;
 
-use crate::output::{DeviceInfo, DeviceList, SuccessResult, UserStatus};
-use crate::utils::open_sqlite_store;
+use crate::output::{DeviceInfo, DeviceList, SuccessResult, UserStatus, WhoAmIInfo};
+use crate::utils::{open_sqlite_store, resolve_recipient};
+use presage::libsignal_service::protocol::ServiceId;
+use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 
-use super::load_registered_and_receive;
+use super::{load_registered, load_registered_and_receive};
 
 pub(crate) async fn run_add_device(
     config_dir: &Path,
@@ -110,6 +112,10 @@ pub(crate) async fn core_get_user_status<S: Store + Send + 'static>(
                             recipient: p.to_string(),
                             is_registered: identity.is_some(),
                             aci: identity.map(|id| id.service_id_string()),
+                            given_name: None,
+                            family_name: None,
+                            about: None,
+                            about_emoji: None,
                         });
                     }
                 }
@@ -117,7 +123,11 @@ pub(crate) async fn core_get_user_status<S: Store + Send + 'static>(
                     recipient: rec,
                     is_registered: false,
                     aci: None,
-                }), // Or handle error
+                    given_name: None,
+                    family_name: None,
+                    about: None,
+                    about_emoji: None,
+                }),
             }
         }
     }
@@ -128,18 +138,148 @@ pub(crate) async fn core_get_user_status<S: Store + Send + 'static>(
                 recipient: user,
                 is_registered: true,
                 aci: Some(service_id.service_id_string()),
+                given_name: None,
+                family_name: None,
+                about: None,
+                about_emoji: None,
             }),
             Ok(None) => statuses.push(UserStatus {
                 recipient: user,
                 is_registered: false,
                 aci: None,
+                given_name: None,
+                family_name: None,
+                about: None,
+                about_emoji: None,
             }),
             Err(_) => statuses.push(UserStatus {
                 recipient: user,
                 is_registered: false,
                 aci: None,
+                given_name: None,
+                family_name: None,
+                about: None,
+                about_emoji: None,
             }),
         }
     }
+    for status in &mut statuses {
+        if status.is_registered {
+            enrich_user_status(manager, status).await;
+        }
+    }
     Ok(statuses)
+}
+
+pub(crate) async fn run_whoami(
+    config_dir: &Path,
+    active_account: Option<String>,
+) -> anyhow::Result<WhoAmIInfo> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let manager = load_registered(store).await?;
+    core_whoami(&manager).await
+}
+
+pub(crate) async fn core_whoami<S: Store + Send + 'static>(
+    manager: &Manager<S, Registered>,
+) -> anyhow::Result<WhoAmIInfo> {
+    let who = manager.whoami().await?;
+    Ok(WhoAmIInfo {
+        number: who.number.to_string(),
+        uuid: who.aci.to_string(),
+        pni: (who.pni != who.aci).then(|| who.pni.to_string()),
+        device_id: u32::from(manager.device_id()),
+    })
+}
+
+pub(crate) async fn run_clear_sessions(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: String,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let manager = load_registered(store).await?;
+    core_clear_sessions(&manager, recipient).await
+}
+
+pub(crate) async fn core_clear_sessions<S: Store + Send + 'static>(
+    manager: &Manager<S, Registered>,
+    recipient: String,
+) -> anyhow::Result<SuccessResult> {
+    let mut resolver = manager.clone();
+    let service_id = resolve_recipient(&mut resolver, &recipient).await?;
+    manager.clear_sessions(&service_id).await?;
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Cleared sessions for {recipient}."),
+    })
+}
+
+pub(crate) async fn run_send_session_reset(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: String,
+    timestamp: Option<u64>,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_session_reset(&mut manager, recipient, timestamp).await
+}
+
+pub(crate) async fn core_send_session_reset<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    recipient: String,
+    timestamp: Option<u64>,
+) -> anyhow::Result<SuccessResult> {
+    let mut resolver = manager.clone();
+    let service_id = resolve_recipient(&mut resolver, &recipient).await?;
+    let ts = timestamp.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_millis() as u64
+    });
+    manager.send_session_reset(&service_id, ts).await?;
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Session reset sent to {recipient}."),
+    })
+}
+
+async fn enrich_user_status<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    status: &mut UserStatus,
+) {
+    let Some(ref aci_str) = status.aci else {
+        return;
+    };
+    let Ok(uuid) = uuid::Uuid::parse_str(aci_str) else {
+        return;
+    };
+    let service_id = ServiceId::Aci(uuid.into());
+    let Ok(Some(contact)) = manager.store().contact_by_id(&service_id).await else {
+        return;
+    };
+    if contact.profile_key.len() != 32 {
+        return;
+    }
+    let Ok(key_bytes) = contact.profile_key.as_slice().try_into() else {
+        return;
+    };
+    let profile_key = ProfileKey::create(key_bytes);
+    let Ok(profile) = manager
+        .retrieve_profile_by_uuid(uuid, profile_key)
+        .await
+    else {
+        return;
+    };
+    if let Some(name) = profile.name {
+        status.given_name = Some(name.given_name);
+        status.family_name = name.family_name;
+    }
+    status.about = profile.about;
+    status.about_emoji = profile.about_emoji;
 }

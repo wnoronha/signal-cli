@@ -198,6 +198,13 @@ pub struct AddStickerPackParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SendSessionResetParams {
+    pub recipient: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetStickerParams {
     pub pack_id: String,
     pub sticker_id: u32,

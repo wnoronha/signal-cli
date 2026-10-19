@@ -224,11 +224,17 @@ pub(crate) async fn run_unregister(
     let manager = load_registered(store).await?;
 
     if manager.registration_type() == RegistrationType::Primary {
-        return Err(SignalError::NotImplemented(
-            "unregister on a primary device is not supported by presage; use deleteLocalAccountData for local data only."
-                .to_string(),
-        )
-        .into());
+        let current = manager.device_id();
+        for device in manager.devices().await? {
+            if device.id != current {
+                manager.unlink_secondary(device.id).await?;
+            }
+        }
+        println!(
+            "Unlinked all secondary devices from this account. This primary device remains registered. Local data stays in {}; use deleteLocalAccountData to remove it.",
+            config_dir.display()
+        );
+        return Ok(());
     }
 
     manager.unlink_self().await?;

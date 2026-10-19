@@ -14,7 +14,7 @@ use presage::libsignal_service::proto::{
 use presage::libsignal_service::protocol::ServiceId;
 use presage::manager::Registered;
 use presage::model::messages::Received;
-use presage::store::Store;
+use presage::store::{Store, Thread};
 
 use crate::output::{
     AttachmentEnvelope, DataMessageEnvelope, ReceiveEnvelope, SendResult, SuccessResult,
@@ -165,6 +165,18 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
                 let source_uuid = content.metadata.sender.service_id_string();
                 let timestamp = content.metadata.server_timestamp.timestamp_millis() as u64;
 
+                let (thread_title, group_id) = match Thread::try_from(content.as_ref()) {
+                    Ok(thread) => {
+                        let title = manager.thread_title(&thread).await.ok();
+                        let gid = match thread {
+                            Thread::Group(key) => Some(hex::encode(key)),
+                            Thread::Contact(_) => None,
+                        };
+                        (title, gid)
+                    }
+                    Err(_) => (None, None),
+                };
+
                 let data_message = if let ContentBody::DataMessage(dm) = content.body {
                     Some(DataMessageEnvelope {
                         message: dm.body,
@@ -200,7 +212,9 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
                 envelopes.push(ReceiveEnvelope {
                     source: None,
                     source_uuid: Some(source_uuid),
-                    source_name: None,
+                    source_name: thread_title.clone(),
+                    thread_title,
+                    group_id,
                     source_device: Some(content.metadata.sender_device.into()),
                     timestamp,
                     server_received_timestamp: None,

@@ -8,6 +8,10 @@ Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ## [0.1.3-dev] - Unreleased
 
 ### Added
+- CLI: `whoami`, `clearSessions`, `sendSessionReset`.
+- JSON-RPC: `whoami`, `clearSessions`, `sendSessionReset`, `removeStickerPack`.
+- CLI: receive envelopes include `threadTitle` and `groupId`.
+- Deps: presage `6f630791` (`SqliteStore::close`).
 - CI: macOS aarch64 build.
 - CI: optional `cargo audit` job.
 - CI: releases include all architecture artifacts.
@@ -37,6 +41,9 @@ Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - JSON-RPC: `unblock` uses the unblock handler.
 
 ### Changed
+- CLI: `listContacts` JSON is a contact array (Java shape).
+- CLI: detailed contacts and `getUserStatus` include profile fields when presage can fetch them.
+- CLI: primary `unregister` unlinks all secondary devices via presage.
 - CLI: `--scrub-log` appears in `--help`.
 - CLI: `--trust-new-identities` applies when the store opens for a command.
 - CLI: `--version` uses `CARGO_PKG_VERSION`.

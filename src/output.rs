@@ -146,10 +146,19 @@ impl Render for GroupList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ContactInfo {
     pub uuid: String,
     pub phone: Option<String>,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about_emoji: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -159,6 +168,10 @@ pub struct ContactList {
 }
 
 impl Render for ContactList {
+    fn render_json(&self) -> String {
+        serde_json::to_string(&self.contacts).unwrap_or_else(|_| "[]".to_string())
+    }
+
     fn render_text(&self) {
         for c in &self.contacts {
             if self.detailed {
@@ -174,10 +187,29 @@ impl Render for ContactList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct UserStatus {
     pub recipient: String,
     pub is_registered: bool,
     pub aci: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about_emoji: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WhoAmIInfo {
+    pub number: String,
+    pub uuid: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pni: Option<String>,
+    pub device_id: u32,
 }
 
 impl Render for Vec<UserStatus> {
@@ -189,10 +221,27 @@ impl Render for Vec<UserStatus> {
                     s.recipient,
                     s.aci.as_deref().unwrap_or("unknown")
                 );
+                if let Some(ref n) = s.given_name {
+                    println!("  Profile name: {n}");
+                }
+                if let Some(ref a) = s.about {
+                    println!("  About: {a}");
+                }
             } else {
                 println!("Recipient: {} is NOT registered on Signal.", s.recipient);
             }
         }
+    }
+}
+
+impl Render for WhoAmIInfo {
+    fn render_text(&self) {
+        println!("Number: {}", self.number);
+        println!("UUID: {}", self.uuid);
+        if let Some(ref pni) = self.pni {
+            println!("PNI: {pni}");
+        }
+        println!("Device ID: {}", self.device_id);
     }
 }
 
@@ -336,6 +385,10 @@ pub struct ReceiveEnvelope {
     pub source: Option<String>,
     pub source_uuid: Option<String>,
     pub source_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
     pub source_device: Option<u32>,
     pub timestamp: u64,
     pub server_received_timestamp: Option<u64>,

@@ -197,6 +197,8 @@ pub async fn run_json_rpc(
                                 source: None,
                                 source_uuid: Some(source_uuid),
                                 source_name: None,
+                                thread_title: None,
+                                group_id: None,
                                 source_device: Some(content.metadata.sender_device.into()),
                                 timestamp: content.metadata.server_timestamp.timestamp_millis() as u64,
                                 server_received_timestamp: None, // Need to find where presage stores this

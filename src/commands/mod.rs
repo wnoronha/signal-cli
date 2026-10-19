@@ -103,6 +103,30 @@ pub async fn execute_command(
             Ok(())
         }
 
+        crate::cli::Command::Whoami => {
+            run_whoami(&config_dir, active_account)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::ClearSessions { recipient } => {
+            run_clear_sessions(&config_dir, active_account, recipient)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendSessionReset {
+            recipient,
+            timestamp,
+        } => {
+            run_send_session_reset(&config_dir, active_account, recipient, timestamp)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
         crate::cli::Command::GetUserStatus {
             recipient,
             username,

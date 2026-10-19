@@ -23,6 +23,9 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "updateContact" => handle_update_contact(request.params, manager).await,
         "listDevices" => handle_list_devices(manager).await,
         "removeDevice" => handle_remove_device(request.params, manager).await,
+        "whoami" => handle_whoami(manager).await,
+        "clearSessions" => handle_clear_sessions(request.params, manager).await,
+        "sendSessionReset" => handle_send_session_reset(request.params, manager).await,
         "sendReceipt" => handle_send_receipt(request.params, manager).await,
         "sendTyping" => handle_send_typing(request.params, manager).await,
         "getUserStatus" => handle_get_user_status(request.params, manager).await,
@@ -41,6 +44,7 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "sendPollTerminate" => handle_send_poll_terminate(request.params, manager).await,
         "listStickerPacks" => handle_list_sticker_packs(manager).await,
         "addStickerPack" => handle_add_sticker_pack(request.params, manager).await,
+        "removeStickerPack" => handle_remove_sticker_pack(request.params, manager).await,
         "getSticker" => handle_get_sticker(request.params, manager).await,
         "uploadStickerPack" => handle_upload_sticker_pack(request.params, manager).await,
         "getAttachment" => handle_get_attachment(request.params, manager).await,
@@ -273,6 +277,34 @@ async fn handle_list_contacts<S: Store + Send + 'static>(
         true, // detailed
     )
     .await?;
+    Ok(serde_json::to_value(result.contacts)?)
+}
+
+async fn handle_whoami<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+) -> Result<Value> {
+    let result = commands::core_whoami(manager).await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_clear_sessions<S: Store + Send + 'static>(
+    params: Option<Value>,
+    manager: &mut Manager<S, Registered>,
+) -> Result<Value> {
+    let params: RemoveContactParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_clear_sessions(manager, params.recipient).await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_send_session_reset<S: Store + Send + 'static>(
+    params: Option<Value>,
+    manager: &mut Manager<S, Registered>,
+) -> Result<Value> {
+    let params: SendSessionResetParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result =
+        commands::core_send_session_reset(manager, params.recipient, params.timestamp).await?;
     Ok(serde_json::to_value(result)?)
 }
 
@@ -370,6 +402,17 @@ async fn handle_add_sticker_pack<S: Store + Send + 'static>(
     let params: AddStickerPackParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
     let result = commands::core_add_sticker_pack(manager, params.pack_id, params.pack_key).await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_remove_sticker_pack<S: Store + Send + 'static>(
+    params: Option<Value>,
+    manager: &mut Manager<S, Registered>,
+) -> Result<Value> {
+    let params: AddStickerPackParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result =
+        commands::core_remove_sticker_pack(manager, params.pack_id, params.pack_key).await?;
     Ok(serde_json::to_value(result)?)
 }
 

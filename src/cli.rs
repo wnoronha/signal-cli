@@ -265,6 +265,32 @@ pub enum Command {
     },
 
     #[clap(
+        name = "whoami",
+        about = "Show registered account metadata from the server"
+    )]
+    Whoami,
+
+    #[clap(
+        name = "clearSessions",
+        about = "Clear Signal sessions for a recipient"
+    )]
+    ClearSessions {
+        #[clap(help = "Recipient UUID or phone number")]
+        recipient: String,
+    },
+
+    #[clap(
+        name = "sendSessionReset",
+        about = "Send a session reset to a recipient"
+    )]
+    SendSessionReset {
+        #[clap(help = "Recipient UUID or phone number")]
+        recipient: String,
+        #[clap(long = "timestamp", help = "Optional message timestamp for the reset")]
+        timestamp: Option<u64>,
+    },
+
+    #[clap(
         name = "getUserStatus",
         about = "Check if users are registered on Signal"
     )]
@@ -1035,6 +1061,9 @@ impl Command {
             Command::ListAccounts => "listAccounts",
             Command::ListDevices => "listDevices",
             Command::RemoveDevice { .. } => "removeDevice",
+            Command::Whoami => "whoami",
+            Command::ClearSessions { .. } => "clearSessions",
+            Command::SendSessionReset { .. } => "sendSessionReset",
             Command::GetUserStatus { .. } => "getUserStatus",
             Command::SendAdminDelete { .. } => "sendAdminDelete",
             Command::Send { .. } => "send",

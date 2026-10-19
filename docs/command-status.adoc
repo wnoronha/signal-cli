@@ -26,7 +26,9 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 | `verify` | Partial | `confirm_verification_code` (via `register`) | CLI: non-zero; use `register` for codes
 | `listAccounts` | Implemented | local DB | |
 | `deleteLocalAccountData` | Implemented | local DB | CLI: removes local DB only; does not unregister on server
-| `unregister` | Partial | `unlink_self` | CLI: secondary linked device only; primary / `--delete-account` stub
+| `unregister` | Partial | `unlink_self`, `unlink_secondary` | CLI: secondary unlinks self; primary unlinks all secondaries; `--delete-account` stub
+| `whoami` | Implemented | `whoami` | CLI + JSON-RPC
+| `clearSessions`, `sendSessionReset` | Implemented | `clear_sessions`, `send_session_reset` | CLI + JSON-RPC
 | `setPin`, `removePin` | Stub | none | CLI: non-zero
 | `updateAccount`, `updateConfiguration`, change number | Stub | none | CLI: non-zero
 | `submitRateLimitChallenge` | Implemented | `submit_recaptcha_challenge` | |
@@ -50,7 +52,8 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 
 | `listGroups` | Implemented | store + group sync | JSON-RPC: detailed array; member IDs are service IDs
 | `joinGroup`, `updateGroup`, `quitGroup` | Stub | none (public API) | CLI: non-zero
-| `listContacts`, `updateContact`, `updateProfile` | Implemented / partial | store / `update_profile` | CLI: some flags may differ from Java
+| `listContacts`, `updateContact`, `updateProfile` | Implemented / partial | store / `update_profile`, `retrieve_profile_by_uuid` | CLI: detailed contacts include profile when key known
+| `getUserStatus` | Implemented / partial | CDS + `retrieve_profile_by_uuid` | Profile fields when contact key known
 | `removeContact`, `block`, `unblock` | Stub | none | CLI: non-zero
 | `listIdentities`, `trust` | Stub | `OnNewIdentity` on store only | CLI: non-zero
 | `sendSyncRequest` | Implemented | `request_contacts` + receive | |
@@ -63,7 +66,7 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 
 | `listDevices`, `removeDevice`, `addDevice` | Implemented / partial | `devices`, `unlink_secondary`, `link_secondary` | |
 | `listStickerPacks`, `addStickerPack`, `getSticker` | Implemented | sticker store + install | CLI: URI validation on add
-| `removeStickerPack` | Implemented | `remove_sticker_pack` | Same `sgnl://` URI form as add
+| `removeStickerPack` | Implemented | `remove_sticker_pack` | CLI + JSON-RPC; same URI form as add
 | `uploadStickerPack` | Stub | none | CLI: non-zero
 |===
 

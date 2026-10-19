@@ -29,8 +29,12 @@ Status: **wired** = implemented in this repo; **stub** = CLI/RPC exists, blocked
 |-----------------------------|--------------|-------------|
 | `Manager::register`, `confirm_verification_code` | `register`, `verify` | wired (`verify` redirects to register flow) |
 | `link_secondary_device`, `link_secondary`, `unlink_secondary` | `link`, `addDevice`, `removeDevice` | wired |
-| `unlink_self` | `unregister` (linked device) | wired (secondary only; no `--delete-account`) |
+| `unlink_self`, `unlink_secondary`, `devices` | `unregister`, `removeDevice` | wired (primary unlinks secondaries; secondary uses `unlink_self`) |
 | `submit_recaptcha_challenge` | `submitRateLimitChallenge` | wired |
+| `whoami` | `whoami` | wired (CLI + JSON-RPC) |
+| `clear_sessions`, `send_session_reset` | `clearSessions`, `sendSessionReset` | wired |
+| `retrieve_profile_by_uuid` | `listContacts`, `getUserStatus` (detailed) | wired (profile fields when profile key known) |
+| `thread_title` | `receive` envelopes | wired (`threadTitle`, `groupId`) |
 | `send_message`, `send_message_to_group`, `receive_messages` | `send`, `receive`, daemon | wired (many flags compat-only) |
 | `request_contacts` | `sendSyncRequest` | wired |
 | `install_sticker_pack`, `remove_sticker_pack`, sticker getters | `addStickerPack`, `removeStickerPack`, `listStickerPacks`, `getSticker` | wired |

@@ -7,6 +7,7 @@ use presage::Manager;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::protocol::ServiceId;
+use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 use presage::manager::Registered;
 use presage::model::contacts::Contact;
 use presage::model::messages::Received;
@@ -43,11 +44,33 @@ pub(crate) async fn core_list_contacts<S: Store + Send + 'static>(
         {
             continue;
         }
-        contacts.push(ContactInfo {
+        let mut info = ContactInfo {
             uuid: contact.uuid.to_string(),
             phone: contact.phone_number.map(|p| p.to_string()),
-            name: contact.name,
-        });
+            name: contact.name.clone(),
+            given_name: None,
+            family_name: None,
+            about: None,
+            about_emoji: None,
+        };
+        if detailed
+            && contact.profile_key.len() == 32
+            && let Ok(key_bytes) = contact.profile_key.as_slice().try_into()
+        {
+            let profile_key = ProfileKey::create(key_bytes);
+            if let Ok(profile) = manager
+                .retrieve_profile_by_uuid(contact.uuid, profile_key)
+                .await
+            {
+                if let Some(name) = profile.name {
+                    info.given_name = Some(name.given_name);
+                    info.family_name = name.family_name;
+                }
+                info.about = profile.about;
+                info.about_emoji = profile.about_emoji;
+            }
+        }
+        contacts.push(info);
     }
     Ok(ContactList { contacts, detailed })
 }

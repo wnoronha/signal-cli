@@ -185,6 +185,11 @@ async fn open_sqlite_at_path(db_path: &Path) -> Result<SqliteStore, SignalError>
         .map_err(|e| SignalError::StoreError(e.to_string()))
 }
 
+/// Close SQLite pool connections (presage-store-sqlite); safe before process exit.
+pub async fn close_sqlite_store(store: &SqliteStore) {
+    store.close().await;
+}
+
 /// Render an attachment identifier as the plain ID string that
 /// `getAttachment --id` accepts (no Rust debug wrappers).
 pub fn attachment_id_str(id: &AttachmentIdentifier) -> String {
