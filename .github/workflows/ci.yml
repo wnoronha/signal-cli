@@ -130,4 +130,4 @@ jobs:
           files: release-artifacts/*.tar.gz
           generate_release_notes: true
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-dev') }}
