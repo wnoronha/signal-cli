@@ -10,7 +10,7 @@ This matrix tracks parity with https://github.com/AsamK/signal-cli[AsamK/signal-
 
 == Note prefixes
 
-Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
+Notes use these labels:
 
 * *CLI* — command-line behavior, flags, exit codes
 * *JSON-RPC* — daemon methods and RPC errors

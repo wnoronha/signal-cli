@@ -128,7 +128,6 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: release-artifacts/*.tar.gz
-          body_path: CHANGELOG.md
           generate_release_notes: true
           draft: false
           prerelease: false

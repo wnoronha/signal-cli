@@ -11,7 +11,7 @@ Rust signal-cli is a **translator**: Java-compatible CLI and JSON-RPC on top of 
 ## Reproducibility
 
 - **Development:** `Cargo.lock` pins an exact git revision. Run `cargo update -p presage` only when intentionally upgrading.
-- **Release tags:** Before tagging, record the pinned presage commit in `CHANGELOG.md` and verify `cargo test` / CI.
+- **Release tags:** Before tagging, note the pinned presage commit in the GitHub release notes and verify `cargo test` / CI.
 - **Optional:** For release branches, consider adding `rev = "<sha>"` to `Cargo.toml` so the requirement is visible without opening the lockfile.
 
 ## Upgrading

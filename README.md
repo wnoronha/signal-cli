@@ -2,7 +2,7 @@
 
 CLI for Signal. Written in Rust. Uses [presage](https://github.com/whisperfish/presage).
 
-Work in progress. Some commands are stubs. Presage does not support them yet; they exit with an error. Use `signal-cli --version` to see your build. See [CHANGELOG.md](CHANGELOG.md) and git tags for release history.
+Work in progress. Some commands are stubs. Presage does not support them yet; they exit with an error. Use `signal-cli --version` to see your build. See GitHub releases and git tags for release history.
 
 This port targets [AsamK/signal-cli](https://github.com/AsamK/signal-cli) CLI and JSON-RPC behavior. It does not keep compatibility with earlier Rust-only output or flags.
 
