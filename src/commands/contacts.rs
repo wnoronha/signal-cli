@@ -58,10 +58,14 @@ pub(crate) async fn core_list_contacts<S: Store + Send + 'static>(
             && let Ok(key_bytes) = contact.profile_key.as_slice().try_into()
         {
             let profile_key = ProfileKey::create(key_bytes);
-            if let Ok(profile) = manager
-                .retrieve_profile_by_uuid(contact.uuid, profile_key)
-                .await
-            {
+            // Bound worst-case latency: one slow profile fetch must not stall
+            // the whole list (N+1 lookups); failures stay non-fatal.
+            let lookup = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                manager.retrieve_profile_by_uuid(contact.uuid, profile_key),
+            )
+            .await;
+            if let Ok(Ok(profile)) = lookup {
                 if let Some(name) = profile.name {
                     info.given_name = Some(name.given_name);
                     info.family_name = name.family_name;

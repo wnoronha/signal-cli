@@ -61,7 +61,7 @@ pub(crate) async fn core_get_avatar<S: Store + Send + 'static>(
             let discovered = manager
                 .discover_contacts_by_phone_number(vec![phone])
                 .await?;
-            if let Some((_, Some(id))) = discovered.into_iter().next() {
+            if let Some(id) = discovered.into_iter().filter_map(|(_, id)| id).next() {
                 id
             } else {
                 anyhow::bail!("Could not resolve phone number to Signal ID.");
@@ -138,7 +138,14 @@ pub(crate) async fn core_get_attachment<S: Store + Send + 'static>(
     let messages = manager.store().messages(&thread, ..).await?;
     let mut attachment_pointer = None;
 
+    // Bound the scan: huge threads must not be fully loaded to find one id.
+    const MAX_THREAD_SCAN: usize = 1000;
+    let mut scanned = 0usize;
     for content_res in messages {
+        if scanned >= MAX_THREAD_SCAN {
+            break;
+        }
+        scanned += 1;
         let content = content_res.map_err(|e| anyhow!("Store error: {:?}", e))?;
         if let ContentBody::DataMessage(dm) = content.body {
             for att in dm.attachments {
@@ -158,8 +165,12 @@ pub(crate) async fn core_get_attachment<S: Store + Send + 'static>(
         }
     }
 
-    let pointer = attachment_pointer
-        .ok_or_else(|| anyhow!("Attachment with ID {} not found in thread.", id))?;
+    let pointer = attachment_pointer.ok_or_else(|| {
+        anyhow!(
+            "Attachment with ID {} not found in the most recent {scanned} thread message(s).",
+            id
+        )
+    })?;
     let bytes = manager.get_attachment(&pointer).await?;
 
     Ok(MediaData {
