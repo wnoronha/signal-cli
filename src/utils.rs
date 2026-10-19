@@ -47,9 +47,12 @@ pub fn current_store_identity() -> OnNewIdentity {
 
 /// Initialize the tracing subscriber for structured logging.
 pub fn init_tracing(verbose: bool, log_file: Option<PathBuf>, scrub_log: bool) {
+    // Coarse but real: scrub mode never enables presage/libsignal debug logs,
+    // which is where numbers, UUIDs, and message metadata appear.
+    let verbose = verbose && !scrub_log;
     if scrub_log {
         eprintln!(
-            "warning: --scrub-log is not implemented yet; log lines may contain phone numbers or message metadata when using -v"
+            "warning: --scrub-log suppresses debug metadata logs (verbose libsignal logs disabled); full field-level redaction is not implemented"
         );
     }
 

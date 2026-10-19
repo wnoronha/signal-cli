@@ -105,7 +105,7 @@ pub fn warn_unimplemented_cli_flags(cli: &Cli) {
         global.push("global --disable-send-log");
     }
     if cli.scrub_log {
-        global.push("global --scrub-log (redaction not implemented)");
+        global.push("global --scrub-log (debug metadata logs suppressed)");
     }
     warn_ignored(&global);
 
