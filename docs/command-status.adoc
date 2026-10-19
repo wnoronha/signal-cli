@@ -1,65 +1,80 @@
 = Command status (Rust port)
 
 This matrix tracks parity with https://github.com/AsamK/signal-cli[AsamK/signal-cli].
-Status values:
 
-* *Implemented* — works via `presage` in this repo
-* *Stub* — CLI/RPC exist; returns `Library limitation` or `Not implemented`
+== Status values
+
+* *Implemented* — works with `presage` in this repo
+* *Stub* — command exists; fails with library limitation or not implemented
 * *Partial* — subset of flags or behavior
+
+== Note prefixes
+
+Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
+
+* *CLI* — command-line behavior, flags, exit codes
+* *JSON-RPC* — daemon methods and RPC errors
+* *Daemon* — long-lived daemon transport and session rules
+* *Compat* — Java signal-cli flags accepted but not implemented
 
 == Account
 
 |===
-| Command | Status | Notes
+| Command | Status | Presage | Notes
 
-| `register`, `link` | Implemented | Verification is interactive during `register`
-| `verify` | Partial | Use `register` flow; subcommand prints guidance only
-| `listAccounts` | Implemented |
-| `deleteLocalAccountData` | Implemented | Does not unregister on server
-| `unregister`, `setPin`, `removePin` | Stub | Exits non-zero; `Not implemented` / JSON error
-| `updateAccount`, `updateConfiguration`, change number | Stub | Exits non-zero; account settings not in presage API
+| `register`, `link` | Implemented | `register`, `link_secondary_device` | CLI: verification is interactive during `register`
+| `verify` | Partial | `confirm_verification_code` (via `register`) | CLI: non-zero; use `register` for codes
+| `listAccounts` | Implemented | local DB | |
+| `deleteLocalAccountData` | Implemented | local DB | CLI: removes local DB only; does not unregister on server
+| `unregister` | Partial | `unlink_self` | CLI: secondary linked device only; primary / `--delete-account` stub
+| `setPin`, `removePin` | Stub | none | CLI: non-zero
+| `updateAccount`, `updateConfiguration`, change number | Stub | none | CLI: non-zero
+| `submitRateLimitChallenge` | Implemented | `submit_recaptcha_challenge` | |
 |===
 
 == Messaging
 
 |===
-| Command | Status | Notes
+| Command | Status | Presage | Notes
 
-| `send`, `receive` | Implemented | Many `send` flags ignored (quotes, stories, etc.)
-| `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete` | Implemented |
-| `getAttachment`, `getAvatar` | Implemented |
-| Polls, pin messages, payments | Stub | JSON-RPC returns library limitation
+| `send`, `receive` | Implemented | `send_message*`, `receive_messages` | Compat: many flags ignored (see link:daemon-rust-port.adoc#[])
+| `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete` | Implemented | message content via `send_message` | |
+| `getAttachment`, `getAvatar` | Implemented | `get_attachment`, profile/group avatar | |
+| Polls, pin messages, payments | Stub | none | JSON-RPC: `-32005`
 |===
 
-== Groups & contacts
+== Groups and contacts
 
 |===
-| Command | Status | Notes
+| Command | Status | Presage | Notes
 
-| `listGroups` | Implemented | `joinGroup` / `updateGroup` / `quitGroup` stubbed (non-zero exit)
-| `listContacts`, `updateContact`, `updateProfile` | Implemented / partial |
-| `removeContact`, `block`, `unblock` | Stub |
-| `listIdentities`, `trust` | Stub |
+| `listGroups` | Implemented | store + group sync | JSON-RPC: detailed array; member IDs are service IDs
+| `joinGroup`, `updateGroup`, `quitGroup` | Stub | none (public API) | CLI: non-zero
+| `listContacts`, `updateContact`, `updateProfile` | Implemented / partial | store / `update_profile` | CLI: some flags may differ from Java
+| `removeContact`, `block`, `unblock` | Stub | none | CLI: non-zero
+| `listIdentities`, `trust` | Stub | `OnNewIdentity` on store only | CLI: non-zero
+| `sendSyncRequest` | Implemented | `request_contacts` + receive | |
 |===
 
-== Devices & stickers
+== Devices and stickers
 
 |===
-| Command | Status | Notes
+| Command | Status | Presage | Notes
 
-| `listDevices`, `removeDevice`, `addDevice` | Implemented / partial |
-| `listStickerPacks`, `addStickerPack`, `getSticker` | Implemented |
-| `uploadStickerPack` | Stub |
+| `listDevices`, `removeDevice`, `addDevice` | Implemented / partial | `devices`, `unlink_secondary`, `link_secondary` | |
+| `listStickerPacks`, `addStickerPack`, `getSticker` | Implemented | sticker store + install | CLI: URI validation on add
+| `removeStickerPack` | Implemented | `remove_sticker_pack` | Same `sgnl://` URI form as add
+| `uploadStickerPack` | Stub | none | CLI: non-zero
 |===
 
 == Daemon
 
 |===
-| Feature | Status | Notes
+| Feature | Status | Presage | Notes
 
-| JSON-RPC over stdin, UNIX socket, TCP, HTTP | Implemented | See <<daemon-rust-port.adoc#>>
-| D-Bus daemon | Not implemented | Flags hidden for compatibility
-| Multi-account daemon without `-a` | Not implemented | Account required
+| JSON-RPC over stdin, UNIX socket, TCP, HTTP | Implemented | one `Manager` per account | Daemon: see link:daemon-rust-port.adoc[]
+| D-Bus daemon | Not implemented | n/a | Compat: warn; use JSON-RPC
+| Multi-account daemon without `-a` | Not implemented | n/a | Daemon: account required
 |===
 
-See also: link:faq.adoc[FAQ], link:getting-started.adoc[Getting started].
+See also: link:faq.adoc[FAQ], link:getting-started.adoc[Getting started], link:presage-deps.md[Presage mapping].

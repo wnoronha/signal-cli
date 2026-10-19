@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use futures::{StreamExt, pin_mut};
 use std::path::Path;
 use std::str::FromStr;
 
@@ -8,13 +9,14 @@ use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::manager::Registered;
 use presage::model::contacts::Contact;
+use presage::model::messages::Received;
 use presage::store::Store;
 
 use crate::errors::SignalError;
 use crate::output::{ContactInfo, ContactList, ProfileInfo, SuccessResult};
 use crate::utils::{open_sqlite_store, resolve_recipient};
 
-use super::load_registered_and_receive;
+use super::{load_registered, load_registered_and_receive};
 
 pub(crate) async fn run_list_contacts(
     config_dir: &Path,
@@ -181,5 +183,52 @@ pub(crate) async fn core_update_contact<S: Store + Send + 'static>(
     Ok(SuccessResult {
         success: true,
         message: format!("Contact {} updated successfully.", recipient),
+    })
+}
+
+pub(crate) async fn run_send_sync_request(
+    config_dir: &Path,
+    active_account: Option<String>,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_sync_request(&mut manager).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_send_sync_request<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+) -> anyhow::Result<SuccessResult> {
+    manager.request_contacts().await?;
+
+    let messages = manager
+        .receive_messages()
+        .await
+        .map_err(|e| anyhow!("Failed to start receive stream after sync request: {e}"))?;
+    pin_mut!(messages);
+
+    while let Some(content) = messages.next().await {
+        match content {
+            Received::Contacts => {
+                return Ok(SuccessResult {
+                    success: true,
+                    message: "Contact sync completed.".to_string(),
+                });
+            }
+            Received::QueueEmpty => {
+                return Ok(SuccessResult {
+                    success: true,
+                    message: "Sync request sent; contact list may update on the next receive."
+                        .to_string(),
+                });
+            }
+            Received::Content(_) | Received::DecryptionError(_) => {}
+        }
+    }
+
+    Ok(SuccessResult {
+        success: true,
+        message: "Sync request sent.".to_string(),
     })
 }

@@ -887,6 +887,12 @@ pub enum Command {
         uri: String,
     },
 
+    #[clap(name = "removeStickerPack", about = "Remove an installed sticker pack")]
+    RemoveStickerPack {
+        #[clap(long = "uri")]
+        uri: String,
+    },
+
     #[clap(name = "getAttachment", about = "Get raw attachment data")]
     GetAttachment {
         #[clap(long = "id")]
@@ -1062,6 +1068,7 @@ impl Command {
             Command::UploadStickerPack { .. } => "uploadStickerPack",
             Command::ListStickerPacks => "listStickerPacks",
             Command::AddStickerPack { .. } => "addStickerPack",
+            Command::RemoveStickerPack { .. } => "removeStickerPack",
             Command::GetAttachment { .. } => "getAttachment",
             Command::GetAvatar { .. } => "getAvatar",
             Command::GetSticker { .. } => "getSticker",

@@ -5,10 +5,16 @@ use presage::Manager;
 use presage::manager::Registered;
 use presage::store::Store;
 
+pub(crate) async fn load_registered<S: Store + Send>(
+    store: S,
+) -> anyhow::Result<Manager<S, Registered>> {
+    Ok(Manager::load_registered(store).await?)
+}
+
 pub(crate) async fn load_registered_and_receive<S: Store + Send>(
     store: S,
 ) -> anyhow::Result<Manager<S, Registered>> {
-    let manager = Manager::load_registered(store).await?;
+    let manager = load_registered(store).await?;
     let manager_receive = manager.clone();
     tokio::task::spawn_local(receive_loop(manager_receive));
     Ok(manager)

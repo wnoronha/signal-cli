@@ -86,11 +86,26 @@ impl Render for SendResult {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupInfo {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub members_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_member: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_blocked: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_members: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requesting_members: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admins: Option<Vec<String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -100,6 +115,11 @@ pub struct GroupList {
 }
 
 impl Render for GroupList {
+    fn render_json(&self) -> String {
+        // Java signal-cli JSON-RPC returns a group array, not a wrapper object.
+        serde_json::to_string(&self.groups).unwrap_or_else(|_| "[]".to_string())
+    }
+
     fn render_text(&self) {
         for g in &self.groups {
             if self.detailed {
@@ -108,7 +128,15 @@ impl Render for GroupList {
                 if let Some(ref desc) = g.description {
                     println!("Description: {}", desc);
                 }
-                println!("Members count: {}", g.members_count);
+                if let Some(count) = g.members_count {
+                    println!("Members count: {count}");
+                }
+                if let Some(ref members) = g.members {
+                    println!("Members: {}", members.join(", "));
+                }
+                if let Some(ref admins) = g.admins {
+                    println!("Admins: {}", admins.join(", "));
+                }
                 println!("-------------------------------------------");
             } else {
                 println!("{} - {}", g.id, g.name);

@@ -172,21 +172,6 @@ pub(crate) async fn run_send_contacts(
     core_send_contacts().await
 }
 
-pub(crate) async fn core_send_sync_request() -> anyhow::Result<SuccessResult> {
-    Err(SignalError::LibraryLimitation(
-        "sendSyncRequest is not yet supported by presage.".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_sync_request(
-    _config_dir: &Path,
-    active_account: Option<String>,
-) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
-    core_send_sync_request().await
-}
-
 // run_upload_sticker_pack core in mod
 pub(crate) async fn core_upload_sticker_pack() -> anyhow::Result<SuccessResult> {
     Err(SignalError::LibraryLimitation(

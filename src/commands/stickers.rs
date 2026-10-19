@@ -84,6 +84,41 @@ pub(crate) async fn core_add_sticker_pack<S: Store + Send + 'static>(
     })
 }
 
+pub(crate) async fn run_remove_sticker_pack(
+    config_dir: &Path,
+    active_account: Option<String>,
+    pack_id: String,
+    pack_key: String,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered_and_receive(store).await?;
+    core_remove_sticker_pack(&mut manager, pack_id, pack_key).await
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_remove_sticker_pack<S: Store + Send + 'static>(
+    manager: &mut Manager<S, Registered>,
+    pack_id_str: String,
+    pack_key_str: String,
+) -> anyhow::Result<SuccessResult> {
+    let pack_id = hex::decode(pack_id_str.trim_start_matches("0x"))?;
+    let pack_key = hex::decode(pack_key_str.trim_start_matches("0x"))?;
+    let pack_id: [u8; 16] = pack_id
+        .try_into()
+        .map_err(|_| anyhow!("Invalid pack ID length (must be 16 bytes)"))?;
+    let pack_key: [u8; 32] = pack_key
+        .try_into()
+        .map_err(|_| anyhow!("Invalid pack key length (must be 32 bytes)"))?;
+
+    manager.remove_sticker_pack(&pack_id, &pack_key).await?;
+
+    Ok(SuccessResult {
+        success: true,
+        message: "Sticker pack removed.".to_string(),
+    })
+}
+
 pub(crate) async fn run_get_sticker(
     config_dir: &Path,
     active_account: Option<String>,

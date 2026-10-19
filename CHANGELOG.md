@@ -15,11 +15,15 @@ Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CLI: JSON errors use JSON-RPC error codes.
 - CLI: `compat` module for Java-compat flag checks.
 - CLI: stderr warnings when a flag is not implemented.
+- CLI: `removeStickerPack` via presage.
+- CLI: `sendSyncRequest` via presage contact sync.
+- CLI: `submitRateLimitChallenge` via presage captcha submit.
 - Code: command modules under `src/commands/`.
 - Code: dispatch stays in `mod.rs`.
 - Doc: command status matrix (`docs/command-status.adoc`).
 - Doc: daemon port notes (`docs/daemon-rust-port.adoc`).
-- Doc: presage dependency notes (`docs/presage-deps.md`).
+- Doc: presage API mapping (`docs/presage-deps.md`).
+- Doc: README points at Java parity target.
 - Tests: group ID parsing.
 - Tests: JSON-RPC models.
 
@@ -38,14 +42,19 @@ Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CLI: `--version` uses `CARGO_PKG_VERSION`.
 - CLI: errors print once on stderr.
 - CLI: `listAccounts` output is sorted.
+- CLI: `listGroups` JSON is a group array (Java shape).
+- CLI: `unregister` unlinks secondary devices via presage.
+- CLI: `verify` exits non-zero with guidance.
 - CLI: presage maps trust `always` to `on-first-use`.
 - CLI: stub messages state when RPC params are ignored.
 - CLI: trust `always` warns on start.
 - Code: fewer `tokio` features enabled.
 - Daemon: warns on default stdin/stdout mode.
+- Doc: command status includes Presage column.
+- Doc: daemon “won’t implement” compat flags.
 - Doc: hidden global compat flags.
-- Doc: `listGroups` JSON-RPC fields.
 - Doc: logs are not redacted (documented).
+- JSON-RPC: `listGroups` returns detailed group array.
 
 ## [0.1.2] - 2026-10-19
 

@@ -2,6 +2,8 @@ use anyhow::anyhow;
 use std::path::Path;
 
 use presage::Manager;
+use presage::libsignal_service::groups_v2::Role;
+use presage::libsignal_service::protocol::ServiceId;
 use presage::manager::Registered;
 use presage::store::Store;
 
@@ -35,12 +37,56 @@ pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
         if !group_ids.is_empty() && !group_ids.contains(&hex_key) {
             continue;
         }
-        groups.push(GroupInfo {
-            id: hex_key,
-            name: g.title,
-            description: g.description,
-            members_count: g.members.len(),
-        });
+
+        let info = if detailed {
+            let mut members = Vec::with_capacity(g.members.len());
+            let mut admins = Vec::new();
+            for m in &g.members {
+                let id = ServiceId::from(m.aci).service_id_string();
+                if m.role == Role::Administrator {
+                    admins.push(id.clone());
+                }
+                members.push(id);
+            }
+            let pending_members: Vec<String> = g
+                .pending_members
+                .iter()
+                .map(|p| p.uuid.to_string())
+                .collect();
+            let requesting_members: Vec<String> = g
+                .requesting_members
+                .iter()
+                .map(|r| ServiceId::from(r.aci).service_id_string())
+                .collect();
+
+            GroupInfo {
+                id: hex_key,
+                name: g.title,
+                description: g.description,
+                members_count: None,
+                is_member: Some(true),
+                is_blocked: Some(false),
+                members: Some(members),
+                pending_members: Some(pending_members),
+                requesting_members: Some(requesting_members),
+                admins: Some(admins),
+            }
+        } else {
+            GroupInfo {
+                id: hex_key,
+                name: g.title,
+                description: g.description,
+                members_count: Some(g.members.len()),
+                is_member: None,
+                is_blocked: None,
+                members: None,
+                pending_members: None,
+                requesting_members: None,
+                admins: None,
+            }
+        };
+
+        groups.push(info);
     }
     Ok(GroupList { groups, detailed })
 }
@@ -92,5 +138,8 @@ pub(crate) async fn run_quit_group(
     _group_id: String,
     _delete: bool,
 ) -> anyhow::Result<()> {
-    Err(SignalError::NotImplemented("quitGroup is not yet implemented.".to_string()).into())
+    Err(SignalError::NotImplemented(
+        "quitGroup is not yet implemented (leave group is not exposed by presage).".to_string(),
+    )
+    .into())
 }

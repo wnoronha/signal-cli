@@ -125,7 +125,7 @@ async fn handle_list_groups<S: Store + Send + 'static>(
 ) -> Result<Value> {
     // Always detailed=true (upstream daemon default differs; documented in daemon-rust-port.adoc).
     let result = commands::core_list_groups(manager, true, Vec::new()).await?;
-    Ok(serde_json::to_value(result)?)
+    Ok(serde_json::to_value(result.groups)?)
 }
 
 async fn handle_update_profile<S: Store + Send + 'static>(
@@ -326,9 +326,9 @@ async fn handle_send_contacts<S: Store + Send + 'static>(
 }
 
 async fn handle_send_sync_request<S: Store + Send + 'static>(
-    _manager: &mut Manager<S, Registered>,
+    manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let result = commands::core_send_sync_request().await?;
+    let result = commands::core_send_sync_request(manager).await?;
     Ok(serde_json::to_value(result)?)
 }
 

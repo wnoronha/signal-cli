@@ -6,11 +6,14 @@ use std::str::FromStr;
 use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
-use presage::manager::RegistrationOptions;
+use presage::manager::{Registered, RegistrationOptions, RegistrationType};
+use presage::store::Store;
 
 use crate::errors::SignalError;
-use crate::output::AccountList;
-use crate::utils::{find_local_accounts, open_or_create_sqlite_store};
+use crate::output::{AccountList, SuccessResult};
+use crate::utils::{find_local_accounts, open_or_create_sqlite_store, open_sqlite_store};
+
+use super::load_registered;
 
 pub(crate) async fn run_list_accounts(config_dir: &Path) -> anyhow::Result<AccountList> {
     let accounts = find_local_accounts(config_dir)?;
@@ -204,15 +207,62 @@ pub(crate) async fn run_delete_local_account_data(
 }
 
 pub(crate) async fn run_unregister(
-    _config_dir: &std::path::Path,
-    _active_account: Option<String>,
-    _delete_account: bool,
+    config_dir: &std::path::Path,
+    active_account: Option<String>,
+    delete_account: bool,
 ) -> anyhow::Result<()> {
-    Err(SignalError::NotImplemented(
-        "unregister is not yet implemented (server-side unregister is not exposed by presage)."
-            .to_string(),
-    )
-    .into())
+    if delete_account {
+        return Err(SignalError::NotImplemented(
+            "Server-side account deletion is not exposed by presage; omit --delete-account or use the primary Java client."
+                .to_string(),
+        )
+        .into());
+    }
+
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let manager = load_registered(store).await?;
+
+    if manager.registration_type() == RegistrationType::Primary {
+        return Err(SignalError::NotImplemented(
+            "unregister on a primary device is not supported by presage; use deleteLocalAccountData for local data only."
+                .to_string(),
+        )
+        .into());
+    }
+
+    manager.unlink_self().await?;
+    println!(
+        "Unlinked this device from the account. Local data remains in {}; use deleteLocalAccountData to remove it.",
+        config_dir.display()
+    );
+    Ok(())
+}
+
+pub(crate) async fn run_submit_rate_limit_challenge(
+    config_dir: &std::path::Path,
+    active_account: Option<String>,
+    challenge: String,
+    captcha: String,
+) -> anyhow::Result<SuccessResult> {
+    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let manager = load_registered(store).await?;
+    core_submit_rate_limit_challenge(&manager, &challenge, &captcha).await
+}
+
+pub(crate) async fn core_submit_rate_limit_challenge<S: Store + Send + 'static>(
+    manager: &Manager<S, Registered>,
+    challenge: &str,
+    captcha: &str,
+) -> anyhow::Result<SuccessResult> {
+    manager
+        .submit_recaptcha_challenge(challenge, captcha)
+        .await?;
+    Ok(SuccessResult {
+        success: true,
+        message: "Rate limit challenge submitted.".to_string(),
+    })
 }
 
 pub(crate) async fn run_set_pin(

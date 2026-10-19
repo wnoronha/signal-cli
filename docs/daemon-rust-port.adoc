@@ -28,6 +28,17 @@ For compatibility with Java signal-cli, these daemon/`receive` flags are parsed 
 
 Global `--dbus`, `--dbus-system`, `--bus-name`, and `--disable-send-log` are also accepted on non-daemon commands for script compatibility; the CLI prints a warning and continues without D-Bus.
 
+== Won't implement (compat flags)
+
+These flags stay parsed for script compatibility. They are not planned unless presage adds support or filtering is implemented locally:
+
+* D-Bus daemon (`--dbus`, `--dbus-system`, `--bus-name`) — use JSON-RPC daemon instead.
+* `--receive-mode`, `--no-receive-stdout` — daemon receive routing differs; use SSE/HTTP events.
+* `--ignore-stories` — story content not handled in this port.
+* `--disable-send-log` — no send log file in Rust port.
+
+Other ignored flags (attachments, avatars, stickers, read receipts) may get local filtering later; until then they only emit a stderr warning.
+
 == Trust policy
 
 Global `--trust-new-identities` applies when opening SQLite stores during a command or daemon session.
@@ -43,3 +54,4 @@ See `src/rpc/handler.rs` for the method list and link:signal-cli-jsonrpc.5.adoc[
 == JSON-RPC behavioral notes
 
 * `listGroups` from the daemon always requests *detailed* group metadata (`detailed: true` internally).
+* `listGroups` JSON-RPC `result` is an array of group objects (Java shape), not a wrapper object.
