@@ -1111,7 +1111,11 @@ impl Command {
     pub fn requires_account(&self) -> bool {
         !matches!(
             self,
-            Command::Version | Command::ListAccounts | Command::Link { .. }
+            Command::Version
+                | Command::ListAccounts
+                | Command::Link { .. }
+                | Command::Daemon { .. }
+                | Command::JsonRpc { .. }
         )
     }
 }

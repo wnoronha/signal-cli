@@ -50,6 +50,18 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
             anyhow::bail!("Account phone number must start with '+' (E.164 format).");
         }
         Some(account)
+    } else if matches!(
+        args.command,
+        crate::cli::Command::Daemon { .. } | crate::cli::Command::JsonRpc { .. }
+    ) {
+        if let Some(ref account) = args.account {
+            if !account.starts_with('+') {
+                anyhow::bail!("Account phone number must start with '+' (E.164 format).");
+            }
+            Some(account.clone())
+        } else {
+            None
+        }
     } else if let Some(ref account) = args.account {
         if !account.starts_with('+') {
             anyhow::bail!("Account phone number must start with '+' (E.164 format).");

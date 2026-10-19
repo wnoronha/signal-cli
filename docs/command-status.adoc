@@ -77,7 +77,7 @@ Notes use the same labels as link:../CHANGELOG.md[CHANGELOG.md]:
 
 | JSON-RPC over stdin, UNIX socket, TCP, HTTP | Implemented | one `Manager` per account | Daemon: see link:daemon-rust-port.adoc[]
 | D-Bus daemon | Not implemented | n/a | Compat: warn; use JSON-RPC
-| Multi-account daemon without `-a` | Not implemented | n/a | Daemon: account required
+| Multi-account daemon without `-a` | Implemented | one manager per `+.db` | Daemon: use `params.account`; `listAccounts` without `-a`
 |===
 
 See also: link:faq.adoc[FAQ], link:getting-started.adoc[Getting started], link:presage-deps.md[Presage mapping].

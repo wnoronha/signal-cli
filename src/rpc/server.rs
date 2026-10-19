@@ -3,9 +3,9 @@ use crate::output::{
     AttachmentEnvelope, CallMessageEnvelope, DataMessageEnvelope, ReactionEnvelope,
     ReceiveEnvelope, StickerEnvelope, TypingMessageEnvelope,
 };
+use crate::rpc::context::{DaemonContext, ManagerHandle};
 use crate::rpc::handler;
 use crate::rpc::models::*;
-use crate::utils;
 use axum::{
     Json, Router,
     extract::State,
@@ -13,15 +13,14 @@ use axum::{
     routing::{get, post},
 };
 use futures::{StreamExt as _, pin_mut, stream::Stream};
-use presage::Manager;
-use presage::libsignal_service::content::ContentBody;
+use presage::libsignal_service::content::{Content, ContentBody};
 use presage::model::messages::Received;
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::io::{self, AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, UnixListener};
-use tokio::sync::{Mutex, broadcast, mpsc, oneshot};
+use tokio::sync::{broadcast, mpsc, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
 use tracing::{error, info, warn};
 
@@ -155,161 +154,184 @@ async fn handle_check_get() -> &'static str {
     "OK"
 }
 
+fn receive_envelope_from_content(content: &Content) -> ReceiveEnvelope {
+    let source_uuid = match content.metadata.sender {
+        presage::libsignal_service::protocol::ServiceId::Aci(u) => Uuid::from(u).to_string(),
+        presage::libsignal_service::protocol::ServiceId::Pni(u) => Uuid::from(u).to_string(),
+    };
+
+    ReceiveEnvelope {
+        source: None,
+        source_uuid: Some(source_uuid),
+        source_name: None,
+        thread_title: None,
+        group_id: None,
+        source_device: Some(content.metadata.sender_device.into()),
+        timestamp: content.metadata.server_timestamp.timestamp_millis() as u64,
+        server_received_timestamp: None,
+        server_delivered_timestamp: None,
+        data_message: if let ContentBody::DataMessage(dm) = &content.body {
+            Some(DataMessageEnvelope {
+                message: dm.body.clone(),
+                attachments: Some(
+                    dm.attachments
+                        .iter()
+                        .map(|a| AttachmentEnvelope {
+                            id: a
+                                .attachment_identifier
+                                .as_ref()
+                                .map(crate::utils::attachment_id_str)
+                                .unwrap_or_default(),
+                            content_type: a.content_type.clone().unwrap_or_default(),
+                            filename: a.file_name.clone(),
+                            size: a.size.map(|s| s as u64),
+                            width: a.width,
+                            height: a.height,
+                            caption: a.caption.clone(),
+                            upload_timestamp: a.upload_timestamp,
+                        })
+                        .collect(),
+                ),
+                sticker: dm.sticker.as_ref().map(|s| StickerEnvelope {
+                    pack_id: s.pack_id.as_ref().map(hex::encode).unwrap_or_default(),
+                    sticker_id: s.sticker_id.unwrap_or_default(),
+                }),
+                reaction: dm.reaction.as_ref().map(|r| ReactionEnvelope {
+                    emoji: r.emoji.clone().unwrap_or_default(),
+                    target_author: None,
+                    target_author_uuid: r.target_author_aci.clone(),
+                    target_sent_timestamp: r.target_sent_timestamp.unwrap_or_default(),
+                    is_remove: r.remove.unwrap_or_default(),
+                }),
+                expires_in_seconds: dm.expire_timer.unwrap_or_default(),
+                is_expiration_update: false,
+                view_once: dm.is_view_once.unwrap_or_default(),
+            })
+        } else {
+            None
+        },
+        typing_message: if let ContentBody::TypingMessage(tm) = &content.body {
+            Some(TypingMessageEnvelope {
+                action: match tm.action {
+                    Some(a)
+                        if a == presage::libsignal_service::proto::typing_message::Action::Started
+                            as i32 =>
+                    {
+                        "STARTED".to_string()
+                    }
+                    Some(a)
+                        if a == presage::libsignal_service::proto::typing_message::Action::Stopped
+                            as i32 =>
+                    {
+                        "STOPPED".to_string()
+                    }
+                    _ => "UNKNOWN".to_string(),
+                },
+                timestamp: tm.timestamp.unwrap_or_default(),
+            })
+        } else {
+            None
+        },
+        call_message: if let ContentBody::CallMessage(cm) = &content.body {
+            Some(CallMessageEnvelope {
+                offer_message: cm
+                    .offer
+                    .as_ref()
+                    .map(|o| serde_json::to_value(format!("{:?}", o)).unwrap()),
+                ice_update_messages: Some(
+                    cm.ice_update
+                        .iter()
+                        .map(|i| serde_json::to_value(format!("{:?}", i)).unwrap())
+                        .collect(),
+                ),
+                hangup_message: cm
+                    .hangup
+                    .as_ref()
+                    .map(|h| serde_json::to_value(format!("{:?}", h)).unwrap()),
+                busy_message: cm
+                    .busy
+                    .as_ref()
+                    .map(|b| serde_json::to_value(format!("{:?}", b)).unwrap()),
+            })
+        } else {
+            None
+        },
+    }
+}
+
+fn spawn_receive_loop(
+    ctx: Arc<DaemonContext>,
+    account: String,
+    notification_tx: broadcast::Sender<String>,
+) {
+    tokio::task::spawn_local(async move {
+        let manager_handle: ManagerHandle = match ctx.manager_for(&account).await {
+            Ok(h) => h,
+            Err(e) => {
+                warn!(%account, error = %e, "receive loop: failed to load account");
+                return;
+            }
+        };
+        let messages_stream = {
+            let mut m = manager_handle.lock().await;
+            m.receive_messages().await.ok()
+        };
+        let Some(messages) = messages_stream else {
+            return;
+        };
+        pin_mut!(messages);
+        while let Some(received_res) = messages.next().await {
+            match received_res {
+                Received::Content(content) => {
+                    let envelope = receive_envelope_from_content(&content);
+                    let mut params = serde_json::Map::new();
+                    params.insert(
+                        "envelope".to_string(),
+                        serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null),
+                    );
+                    params.insert(
+                        "account".to_string(),
+                        serde_json::Value::String(account.clone()),
+                    );
+                    let notification = JsonRpcNotification {
+                        jsonrpc: "2.0".to_string(),
+                        method: "receive".to_string(),
+                        params: Some(serde_json::Value::Object(params)),
+                    };
+                    if let Ok(json) = serde_json::to_string(&notification) {
+                        let _ = notification_tx.send(json);
+                    }
+                }
+                Received::QueueEmpty => {}
+                _ => {}
+            }
+        }
+        warn!(%account, "Message stream ended for account");
+    });
+}
+
 pub async fn run_json_rpc(
     config_dir: PathBuf,
     active_account: Option<String>,
     command: Command,
 ) -> anyhow::Result<()> {
-    let account = active_account.ok_or_else(|| anyhow::anyhow!("Account not specified."))?;
-    let store = utils::open_sqlite_store(&config_dir, &account).await?;
-    let manager = Manager::load_registered(store).await?;
-    let manager = Arc::new(Mutex::new(manager));
-
+    let ctx = DaemonContext::new(config_dir, active_account);
     let (notification_tx, _) = broadcast::channel::<String>(100);
     let (rpc_tx, mut rpc_rx) = mpsc::channel::<RpcRequestMessage>(32);
 
-    // Unified RPC & Receive actor (handles non-Send futures from presage)
-    let manager_clone = manager.clone();
-    let n_tx = notification_tx.clone();
-    let account_clone = account.clone();
+    for account in ctx.accounts_for_receive()? {
+        spawn_receive_loop(ctx.clone(), account, notification_tx.clone());
+    }
+
+    let ctx_rpc = ctx.clone();
     tokio::task::spawn_local(async move {
-        let messages_stream = {
-            let mut m = manager_clone.lock().await;
-            m.receive_messages().await.ok()
-        };
-
-        if let Some(messages) = messages_stream {
-            pin_mut!(messages);
-            loop {
-                tokio::select! {
-                    received_res = messages.next() => {
-                        if let Some(Received::Content(content)) = received_res {
-                            let source_uuid = match content.metadata.sender {
-                                presage::libsignal_service::protocol::ServiceId::Aci(u) => {
-                                    Uuid::from(u).to_string()
-                                }
-                                presage::libsignal_service::protocol::ServiceId::Pni(u) => {
-                                    Uuid::from(u).to_string()
-                                }
-                            };
-
-                            let envelope = ReceiveEnvelope {
-                                source: None,
-                                source_uuid: Some(source_uuid),
-                                source_name: None,
-                                thread_title: None,
-                                group_id: None,
-                                source_device: Some(content.metadata.sender_device.into()),
-                                timestamp: content.metadata.server_timestamp.timestamp_millis() as u64,
-                                server_received_timestamp: None, // Need to find where presage stores this
-                                server_delivered_timestamp: None,
-                                data_message: if let ContentBody::DataMessage(dm) = &content.body {
-                                    Some(DataMessageEnvelope {
-                                        message: dm.body.clone(),
-                                        attachments: Some(
-                                            dm.attachments
-                                                .iter()
-                                                .map(|a| AttachmentEnvelope {
-                                                    id: a
-                                                        .attachment_identifier
-                                                        .as_ref()
-                                                        .map(crate::utils::attachment_id_str)
-                                                        .unwrap_or_default(),
-                                                    content_type: a.content_type.clone().unwrap_or_default(),
-                                                    filename: a.file_name.clone(),
-                                                    size: a.size.map(|s| s as u64),
-                                                    width: a.width,
-                                                    height: a.height,
-                                                    caption: a.caption.clone(),
-                                                    upload_timestamp: a.upload_timestamp,
-                                                })
-                                                .collect(),
-                                        ),
-                                        sticker: dm.sticker.as_ref().map(|s| StickerEnvelope {
-                                            pack_id: s.pack_id.as_ref().map(hex::encode).unwrap_or_default(),
-                                            sticker_id: s.sticker_id.unwrap_or_default(),
-                                        }),
-                                        reaction: dm.reaction.as_ref().map(|r| ReactionEnvelope {
-                                            emoji: r.emoji.clone().unwrap_or_default(),
-                                            target_author: None,
-                                            target_author_uuid: r.target_author_aci.clone(),
-                                            target_sent_timestamp: r.target_sent_timestamp.unwrap_or_default(),
-                                            is_remove: r.remove.unwrap_or_default(),
-                                        }),
-                                        expires_in_seconds: dm.expire_timer.unwrap_or_default(),
-                                        is_expiration_update: false, // We'd need to check flags for this
-                                        view_once: dm.is_view_once.unwrap_or_default(),
-                                    })
-                                } else {
-                                    None
-                                },
-                                typing_message: if let ContentBody::TypingMessage(tm) = &content.body {
-                                    Some(TypingMessageEnvelope {
-                                        action: match tm.action {
-                                            Some(a) if a == presage::libsignal_service::proto::typing_message::Action::Started as i32 => "STARTED".to_string(),
-                                            Some(a) if a == presage::libsignal_service::proto::typing_message::Action::Stopped as i32 => "STOPPED".to_string(),
-                                            _ => "UNKNOWN".to_string(),
-                                        },
-                                        timestamp: tm.timestamp.unwrap_or_default(),
-                                    })
-                                } else {
-                                    None
-                                },
-                                call_message: if let ContentBody::CallMessage(cm) = &content.body {
-                                    Some(CallMessageEnvelope {
-                                        offer_message: cm.offer.as_ref().map(|o| serde_json::to_value(format!("{:?}", o)).unwrap()),
-                                        ice_update_messages: Some(cm.ice_update.iter().map(|i| serde_json::to_value(format!("{:?}", i)).unwrap()).collect()),
-                                        hangup_message: cm.hangup.as_ref().map(|h| serde_json::to_value(format!("{:?}", h)).unwrap()),
-                                        busy_message: cm.busy.as_ref().map(|b| serde_json::to_value(format!("{:?}", b)).unwrap()),
-                                    })
-                                } else {
-                                    None
-                                },
-                            };
-
-                            let mut params = serde_json::Map::new();
-                            params.insert("envelope".to_string(), serde_json::to_value(envelope).unwrap());
-                            params.insert("account".to_string(), serde_json::Value::String(account_clone.clone()));
-
-                            let notification = JsonRpcNotification {
-                                jsonrpc: "2.0".to_string(),
-                                method: "receive".to_string(),
-                                params: Some(serde_json::Value::Object(params)),
-                            };
-
-                            if let Ok(json) = serde_json::to_string(&notification) {
-                                let _ = n_tx.send(json);
-                            }
-                        } else if received_res.is_none() {
-                            warn!("Message stream ended.");
-                            break;
-                        }
-                    }
-                    Some(rpc_msg) = rpc_rx.recv() => {
-                        match rpc_msg {
-                            RpcRequestMessage::HandleRequest { request, response_tx } => {
-                                let mut m = manager_clone.lock().await;
-                                let response = handler::handle_request(request, &mut *m).await;
-                                let _ = response_tx.send(response);
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            // No messages stream, just handle RPC
-            while let Some(rpc_msg) = rpc_rx.recv().await {
-                match rpc_msg {
-                    RpcRequestMessage::HandleRequest {
-                        request,
-                        response_tx,
-                    } => {
-                        let mut m = manager_clone.lock().await;
-                        let response = handler::handle_request(request, &mut *m).await;
-                        let _ = response_tx.send(response);
-                    }
-                }
-            }
+        while let Some(rpc_msg) = rpc_rx.recv().await {
+            let RpcRequestMessage::HandleRequest {
+                request,
+                response_tx,
+            } = rpc_msg;
+            let response = handler::handle_daemon_request(request, ctx_rpc.clone()).await;
+            let _ = response_tx.send(response);
         }
     });
 
@@ -317,7 +339,7 @@ pub async fn run_json_rpc(
         Command::JsonRpc { .. } => {
             info!("Starting JSON-RPC on stdin/stdout");
             handle_client(
-                manager,
+                ctx.clone(),
                 notification_tx.subscribe(),
                 io::stdin(),
                 io::stdout(),
@@ -334,10 +356,10 @@ pub async fn run_json_rpc(
                 loop {
                     let (stream, _) = listener.accept().await?;
                     let (reader, writer) = stream.into_split();
-                    let m = manager.clone();
+                    let c = ctx.clone();
                     let n_rx = notification_tx.subscribe();
                     tokio::task::spawn_local(async move {
-                        if let Err(e) = handle_client(m, n_rx, reader, writer).await {
+                        if let Err(e) = handle_client(c, n_rx, reader, writer).await {
                             error!("Client error: {:?}", e);
                         }
                     });
@@ -348,10 +370,10 @@ pub async fn run_json_rpc(
                 loop {
                     let (stream, _) = listener.accept().await?;
                     let (reader, writer) = stream.into_split();
-                    let m = manager.clone();
+                    let c = ctx.clone();
                     let n_rx = notification_tx.subscribe();
                     tokio::task::spawn_local(async move {
-                        if let Err(e) = handle_client(m, n_rx, reader, writer).await {
+                        if let Err(e) = handle_client(c, n_rx, reader, writer).await {
                             error!("Client error: {:?}", e);
                         }
                     });
@@ -379,7 +401,7 @@ pub async fn run_json_rpc(
                     "No daemon interface specified (socket/tcp/http). Defaulting to stdin/stdout."
                 );
                 handle_client(
-                    manager,
+                    ctx.clone(),
                     notification_tx.subscribe(),
                     io::stdin(),
                     io::stdout(),
@@ -394,9 +416,7 @@ pub async fn run_json_rpc(
 }
 
 async fn handle_client<R, W>(
-    manager: Arc<
-        Mutex<Manager<impl presage::store::Store + 'static, presage::manager::Registered>>,
-    >,
+    ctx: Arc<DaemonContext>,
     mut notification_rx: broadcast::Receiver<String>,
 
     reader: R,
@@ -442,9 +462,7 @@ where
                     }
                 };
 
-                let mut manager_lock = manager.lock().await;
-                let response = handler::handle_request(request, &mut manager_lock).await;
-                drop(manager_lock);
+                let response = handler::handle_daemon_request(request, ctx.clone()).await;
 
                 let res_json = serde_json::to_string(&response)?;
                 writer.write_all(res_json.as_bytes()).await?;

@@ -270,10 +270,7 @@ async fn enrich_user_status<S: Store + Send + 'static>(
         return;
     };
     let profile_key = ProfileKey::create(key_bytes);
-    let Ok(profile) = manager
-        .retrieve_profile_by_uuid(uuid, profile_key)
-        .await
-    else {
+    let Ok(profile) = manager.retrieve_profile_by_uuid(uuid, profile_key).await else {
         return;
     };
     if let Some(name) = profile.name {

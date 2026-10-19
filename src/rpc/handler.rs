@@ -3,12 +3,66 @@
 
 use crate::commands;
 use crate::errors::SignalError;
+use crate::rpc::context::DaemonContext;
 use crate::rpc::models::*;
 use anyhow::{Result, anyhow};
 use presage::Manager;
 use presage::manager::Registered;
 use presage::store::Store;
 use serde_json::Value;
+use std::sync::Arc;
+
+/// JSON-RPC entry for daemon modes (optional CLI `-a`, per-request `params.account`).
+pub async fn handle_daemon_request(
+    request: JsonRpcRequest,
+    ctx: Arc<DaemonContext>,
+) -> JsonRpcResponse {
+    let id = request.id.clone().unwrap_or(Value::Null);
+    if request.method == "listAccounts" {
+        return match ctx.list_accounts_json().await {
+            Ok(accounts) => JsonRpcResponse {
+                jsonrpc: "2.0".to_string(),
+                result: Some(accounts),
+                error: None,
+                id,
+            },
+            Err(e) => json_rpc_error(id, -32603, e.to_string()),
+        };
+    }
+
+    let account = match ctx.resolve_account(&request.method, &request.params) {
+        Ok(a) => a,
+        Err(e) => return json_rpc_error(id, -32602, e.to_string()),
+    };
+
+    let manager_handle = match ctx.manager_for(&account).await {
+        Ok(h) => h,
+        Err(e) => {
+            let code = if e.downcast_ref::<SignalError>().is_some() {
+                -32001
+            } else {
+                -32603
+            };
+            return json_rpc_error(id, code, e.to_string());
+        }
+    };
+
+    let mut manager = manager_handle.lock().await;
+    handle_request(request, &mut *manager).await
+}
+
+fn json_rpc_error(id: Value, code: i32, message: String) -> JsonRpcResponse {
+    JsonRpcResponse {
+        jsonrpc: "2.0".to_string(),
+        result: None,
+        error: Some(JsonRpcError {
+            code,
+            message,
+            data: None,
+        }),
+        id,
+    }
+}
 
 pub async fn handle_request<S: Store + Send + 'static>(
     request: JsonRpcRequest,
