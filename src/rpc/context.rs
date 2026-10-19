@@ -198,40 +198,40 @@ impl DaemonContext {
         // Warm the manager cache so the new account is usable immediately,
         // and spawn a live push loop when the daemon has a notifier.
         drop(session);
-        if let Ok(handle) = self.manager_for(&phone_number).await {
-            if let Some(tx) = self.notifier.lock().await.clone() {
-                let mut receive_manager = handle.lock().await.clone();
-                let account = phone_number.clone();
-                tokio::task::spawn_local(async move {
-                    let Ok(messages) = receive_manager.receive_messages().await else {
-                        return;
-                    };
-                    pin_mut!(messages);
-                    while let Some(res) = messages.next().await {
-                        if let Received::Content(content) = res {
-                            let envelope = build_receive_envelope(&receive_manager, &content).await;
-                            let mut params = serde_json::Map::new();
-                            params.insert(
-                                "envelope".to_string(),
-                                serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null),
-                            );
-                            params.insert(
-                                "account".to_string(),
-                                serde_json::Value::String(account.clone()),
-                            );
-                            let notification = crate::rpc::models::JsonRpcNotification {
-                                jsonrpc: "2.0".to_string(),
-                                method: "receive".to_string(),
-                                params: Some(serde_json::Value::Object(params)),
-                            };
-                            if let Ok(json) = serde_json::to_string(&notification) {
-                                let _ = tx.send(json);
-                            }
+        if let Ok(handle) = self.manager_for(&phone_number).await
+            && let Some(tx) = self.notifier.lock().await.clone()
+        {
+            let mut receive_manager = handle.lock().await.clone();
+            let account = phone_number.clone();
+            tokio::task::spawn_local(async move {
+                let Ok(messages) = receive_manager.receive_messages().await else {
+                    return;
+                };
+                pin_mut!(messages);
+                while let Some(res) = messages.next().await {
+                    if let Received::Content(content) = res {
+                        let envelope = build_receive_envelope(&receive_manager, &content).await;
+                        let mut params = serde_json::Map::new();
+                        params.insert(
+                            "envelope".to_string(),
+                            serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null),
+                        );
+                        params.insert(
+                            "account".to_string(),
+                            serde_json::Value::String(account.clone()),
+                        );
+                        let notification = crate::rpc::models::JsonRpcNotification {
+                            jsonrpc: "2.0".to_string(),
+                            method: "receive".to_string(),
+                            params: Some(serde_json::Value::Object(params)),
+                        };
+                        if let Ok(json) = serde_json::to_string(&notification) {
+                            let _ = tx.send(json);
                         }
                     }
-                    warn!(%account, "Message stream ended for account");
-                });
-            }
+                }
+                warn!(%account, "Message stream ended for account");
+            });
         }
 
         Ok(json!({ "deviceLinkUri": device_link_uri }))
