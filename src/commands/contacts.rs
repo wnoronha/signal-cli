@@ -176,7 +176,9 @@ pub(crate) async fn core_update_contact<S: Store + Send + 'static>(
                 phone_number: None,
                 name: String::new(),
                 verified: Default::default(),
-                profile_key: vec![0u8; 32], // Placeholder
+                // Empty (not zero) so detailed profile lookups skip it
+                // until a real profile key is synced.
+                profile_key: Vec::new(),
                 expire_timer: 0,
                 expire_timer_version: 0,
                 inbox_position: 0,

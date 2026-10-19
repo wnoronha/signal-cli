@@ -24,11 +24,12 @@ pub(crate) async fn remove_link_db_files(config_dir: &Path, db_name: &str) {
 
 pub(crate) fn new_link_temp_db_name() -> String {
     format!(
-        "link_temp_{}",
+        "link_temp_{}_{}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
-            .unwrap_or(0)
+            .unwrap_or(0),
+        uuid::Uuid::new_v4().simple()
     )
 }
 
