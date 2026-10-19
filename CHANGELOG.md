@@ -1,52 +1,83 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+This file lists notable project changes.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).  
+Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.1.3-dev] - Unreleased
 
 ### Added
-- Split `src/commands/` into domain modules (account, messaging, groups, etc.); `mod.rs` holds dispatch only.
-- Command status matrix (`docs/command-status.adoc`) and daemon port notes (`docs/daemon-rust-port.adoc`).
-- `--log-file` support; JSON CLI errors aligned with JSON-RPC codes.
-- Split `src/commands/` modules; tests for group IDs and JSON-RPC models.
-- macOS aarch64 release artifact in CI; optional `cargo audit` job.
+- CI: macOS aarch64 build.
+- CI: optional `cargo audit` job.
+- CI: releases include all architecture artifacts.
+- CLI: `--log-file` for trace output.
+- CLI: JSON errors use JSON-RPC error codes.
+- CLI: `compat` module for Java-compat flag checks.
+- CLI: stderr warnings when a flag is not implemented.
+- Code: command modules under `src/commands/`.
+- Code: dispatch stays in `mod.rs`.
+- Doc: command status matrix (`docs/command-status.adoc`).
+- Doc: daemon port notes (`docs/daemon-rust-port.adoc`).
+- Doc: presage dependency notes (`docs/presage-deps.md`).
+- Tests: group ID parsing.
+- Tests: JSON-RPC models.
 
 ### Fixed
-- Ignored Java-compat CLI flags emit stderr warnings; stub commands no longer exit 0 silently.
-- CLI stubs (`unregister`, group admin, account migration, etc.) exit non-zero instead of success with a message only.
-- JSON-RPC: stub methods return library-limitation errors instead of "Account not specified".
-- JSON-RPC: `unblock` routes to the unblock handler (not `block`).
-- CLI: `addStickerPack` validates sticker pack URIs before install.
+- CLI: `addStickerPack` checks the sticker pack URI before install.
+- CLI: `removeContact` stub exits before recipient lookup.
+- CLI: stub commands exit non-zero.
+- CLI: stubs use `SignalError::NotImplemented`.
+- JSON-RPC: stubs call `core_*` handlers.
+- JSON-RPC: stubs no longer return "Account not specified" for library limits.
+- JSON-RPC: `unblock` uses the unblock handler.
 
 ### Changed
-- `--trust-new-identities` applies when opening account SQLite stores.
-- Version output uses `CARGO_PKG_VERSION`; account list order is sorted.
-- CLI errors use readable formatting on stderr.
+- CLI: `--scrub-log` appears in `--help`.
+- CLI: `--trust-new-identities` applies when the store opens for a command.
+- CLI: `--version` uses `CARGO_PKG_VERSION`.
+- CLI: errors print once on stderr.
+- CLI: `listAccounts` output is sorted.
+- CLI: presage maps trust `always` to `on-first-use`.
+- CLI: stub messages state when RPC params are ignored.
+- CLI: trust `always` warns on start.
+- Code: fewer `tokio` features enabled.
+- Daemon: warns on default stdin/stdout mode.
+- Doc: hidden global compat flags.
+- Doc: `listGroups` JSON-RPC fields.
+- Doc: logs are not redacted (documented).
+
+## [0.1.2] - 2026-10-19
+
+### Added
+- CI: Linux aarch64 release binary.
+
+### Fixed
+- JSON-RPC: accepts one recipient string or an array.
 
 ## [0.1.1] - 2026-10-19
 
 ### Added
-- Terminal QR code for `link` (no external tool needed).
-- Updated to latest `presage` / `libsignal-service-rs` / `libsignal`.
+- CLI: terminal QR code for `link`.
+- Deps: updated `presage`, `libsignal-service-rs`, and `libsignal`.
 
 ### Fixed
-- CI: use Node 24 action runtimes.
-- Attachments: match new `CdnKey` pointers; logs go to stderr so binary output stays clean.
+- CI: Node 24 action runtimes.
+- CLI: attachments use new `CdnKey` pointers.
+- CLI: binary stdout stays clean.
+- CLI: logs go to stderr.
 
 ## [0.1.0] - 2025-05-15
 
 ### Added
-- Initial Rust port of `signal-cli`.
-- Account management: `register`, `link`, `listAccounts`, `deleteLocalAccountData`.
-- Messaging: `send`, `receive`, `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete`.
-- Media Retrieval: `getAttachment`, `getAvatar`.
-- Profile management: `updateProfile`.
-- Group information: `listGroups`.
-- Contact management: `listContacts`.
-- JSON-RPC daemon mode (`daemon`, `jsonRpc`).
-- Structured logging with `tracing`.
-- Output formatting (plain-text and JSON).
-- Man page generation and installation via Makefile.
+- CLI: account commands: `register`, `link`, `listAccounts`, `deleteLocalAccountData`.
+- CLI: contact commands: `listContacts`.
+- CLI: group commands: `listGroups`.
+- CLI: media commands: `getAttachment`, `getAvatar`.
+- CLI: messaging commands: `send`, `receive`, `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete`.
+- CLI: output in plain text and JSON.
+- CLI: profile commands: `updateProfile`.
+- Code: structured logging with `tracing`.
+- Doc: man page generation and install via Makefile.
+- JSON-RPC: `daemon`, `jsonRpc`.
+- Release: initial Rust port of `signal-cli`.
