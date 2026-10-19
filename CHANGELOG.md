@@ -67,6 +67,28 @@ Versions: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Doc: logs are not redacted (documented).
 - JSON-RPC: `listGroups` returns detailed group array.
 
+### Security
+- Accounts: validate `+E.164` / `link_temp_*` names before touching the filesystem (path-traversal block); non-UTF8 DB paths error instead of panic.
+- Daemon: `--trust-new-identities` enforced per open (default `Reject`); previously daemon workers silently fell back to `Trust`.
+- Daemon: `finishLink` accounts get a live `receive` push loop, not just a warmed cache.
+- Attachments: capped at 10 files / 100 MiB, regular files only, symlinks rejected; optional `--attachment-dir` confinement (also `SIGNAL_CLI_ATTACHMENT_DIR`) with canonical-path check.
+- Timestamps/ids: checked conversions (`target_timestamp`, `device_id`, `sticker_id`, `expiration`, poll options); no negative wrap, no clock-skew panic.
+
+### Fixed
+- CLI: `version`, `register`, `link`, `unregister`, `deleteLocalAccountData` render via `--output json`; progress/QR/prompts go to stderr so stdout stays JSON-clean.
+- CLI: `register --verification-code` enables non-interactive verification.
+- CLI: missing-account errors use `AccountNotFound` (`-32001`) consistently.
+- CLI: contact phone renders as display string (no `Some(..)`); device times labeled `ms`; `receive` shows number/UUID fallback; binary attachments no longer dumped raw to stdout.
+- CLI: ignored flags (`trust`, `listContacts`, `updateContact`, `sendReaction`, `sendReceipt`, `updateProfile`) warn instead of silently dropping.
+- RPC: no `unwrap()` panics in HTTP/envelope paths; batch failures return per-request errors; `finishLink` params validated (`-32602`).
+- Daemon: one-shot commands no longer spawn a lossy background receive loop; manager locks narrowed (clone-then-receive).
+- Contacts: new contacts get an empty (not zero) profile key; discovery picks the first resolved identity; profile enrichment has a 5s per-contact timeout.
+- Media: `getAttachment` scan bounded to the most recent 1000 thread messages; phone discovery picks the first resolved identity.
+- Logging: OTP codes, DB paths, and message bodies redacted; `--scrub-log` suppresses debug metadata logs.
+- Async: stdin and filesystem I/O moved off blocking calls (`tokio::fs`, async stdin).
+- Deps: dropped unused `tokio/signal`; documented bundled SQLite and the `futures` vs `tokio` oneshot split.
+- Tests: 27 passing, incl. account-validation, conversion, and command-name drift guards.
+
 ## [0.1.2] - 2026-10-19
 
 ### Added
