@@ -39,3 +39,7 @@ Implemented methods call `core_*` handlers with the loaded manager.
 Stub methods return JSON-RPC error code `-32005` (library limitation), not account errors.
 
 See `src/rpc/handler.rs` for the method list and link:signal-cli-jsonrpc.5.adoc[signal-cli-jsonrpc(5)] for upstream API documentation.
+
+== JSON-RPC behavioral notes
+
+* `listGroups` from the daemon always requests *detailed* group metadata (`detailed: true` internally).

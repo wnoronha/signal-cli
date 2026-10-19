@@ -123,6 +123,7 @@ async fn handle_receive<S: Store + Send + 'static>(
 async fn handle_list_groups<S: Store + Send + 'static>(
     manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
+    // Always detailed=true (upstream daemon default differs; documented in daemon-rust-port.adoc).
     let result = commands::core_list_groups(manager, true, Vec::new()).await?;
     Ok(serde_json::to_value(result)?)
 }

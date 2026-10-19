@@ -168,6 +168,11 @@ pub async fn execute_command(
 ) -> anyhow::Result<()> {
     let output = args.output;
     crate::compat::warn_unimplemented_cli_flags(&args);
+    if args.trust_new_identities == crate::cli::TrustMode::Always {
+        eprintln!(
+            "warning: --trust-new-identities always is mapped to presage Trust (same as on-first-use in this port)"
+        );
+    }
     let _store_identity = push_store_identity(args.trust_new_identities);
     let result = match args.command {
         crate::cli::Command::Version => {

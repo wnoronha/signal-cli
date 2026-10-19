@@ -370,6 +370,9 @@ pub async fn run_json_rpc(
                 let listener = TcpListener::bind(&addr).await?;
                 axum::serve(listener, app).await?;
             } else {
+                eprintln!(
+                    "warning: no daemon interface specified (--socket, --tcp, or --http); using stdin/stdout JSON-RPC"
+                );
                 warn!(
                     "No daemon interface specified (socket/tcp/http). Defaulting to stdin/stdout."
                 );
