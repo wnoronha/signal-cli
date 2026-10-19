@@ -37,11 +37,14 @@ async fn handle_rpc_post(
     State(state): State<Arc<AppState>>,
     Json(input): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
+    // Serialization of our own response types should not fail; fall back to
+    // null instead of panicking the axum task.
+    let to_json = |v: serde_json::Value| v;
     if input.is_array() {
         let requests: Vec<JsonRpcRequest> = match serde_json::from_value(input) {
             Ok(reqs) => reqs,
             Err(_) => {
-                return Json(
+                return Json(to_json(
                     serde_json::to_value(JsonRpcResponse {
                         jsonrpc: "2.0".to_string(),
                         result: None,
@@ -52,31 +55,56 @@ async fn handle_rpc_post(
                         }),
                         id: serde_json::Value::Null,
                     })
-                    .unwrap(),
-                );
+                    .unwrap_or(serde_json::Value::Null),
+                ));
             }
         };
 
         let mut responses = Vec::new();
         for req in requests {
+            let req_id = req.id.clone().unwrap_or(serde_json::Value::Null);
             let (tx, rx) = oneshot::channel();
-            let _ = state
+            if state
                 .rpc_tx
                 .send(RpcRequestMessage::HandleRequest {
                     request: req,
                     response_tx: tx,
                 })
-                .await;
-            if let Ok(res) = rx.await {
-                responses.push(res);
+                .await
+                .is_err()
+            {
+                responses.push(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32603,
+                        message: "Internal error: actor unavailable".to_string(),
+                        data: None,
+                    }),
+                    id: req_id,
+                });
+                continue;
+            }
+            match rx.await {
+                Ok(res) => responses.push(res),
+                Err(_) => responses.push(JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    result: None,
+                    error: Some(JsonRpcError {
+                        code: -32603,
+                        message: "Internal error: actor died".to_string(),
+                        data: None,
+                    }),
+                    id: req_id,
+                }),
             }
         }
-        Json(serde_json::to_value(responses).unwrap())
+        Json(serde_json::to_value(responses).unwrap_or(serde_json::Value::Null))
     } else {
         let request: JsonRpcRequest = match serde_json::from_value(input.clone()) {
             Ok(req) => req,
             Err(_) => {
-                return Json(
+                return Json(to_json(
                     serde_json::to_value(JsonRpcResponse {
                         jsonrpc: "2.0".to_string(),
                         result: None,
@@ -87,8 +115,8 @@ async fn handle_rpc_post(
                         }),
                         id: input.get("id").cloned().unwrap_or(serde_json::Value::Null),
                     })
-                    .unwrap(),
-                );
+                    .unwrap_or(serde_json::Value::Null),
+                ));
             }
         };
 
@@ -110,7 +138,7 @@ async fn handle_rpc_post(
             }),
             id: input.get("id").cloned().unwrap_or(serde_json::Value::Null),
         });
-        Json(serde_json::to_value(response).unwrap())
+        Json(serde_json::to_value(response).unwrap_or(serde_json::Value::Null))
     }
 }
 

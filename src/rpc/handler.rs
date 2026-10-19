@@ -48,13 +48,20 @@ pub async fn handle_daemon_request(
             };
         }
         "finishLink" => {
-            let params: FinishLinkParams = match request.params.clone() {
-                Some(p) => serde_json::from_value(p).unwrap_or(FinishLinkParams {
-                    device_link_uri: String::new(),
-                    device_name: None,
-                }),
+            let params_value = match request.params.clone() {
+                Some(p) => p,
                 None => {
                     return json_rpc_error(id, -32602, "Missing params".to_string());
+                }
+            };
+            let params: FinishLinkParams = match serde_json::from_value(params_value) {
+                Ok(p) => p,
+                Err(e) => {
+                    return json_rpc_error(
+                        id,
+                        -32602,
+                        format!("Invalid params for finishLink: {e}"),
+                    );
                 }
             };
             if params.device_link_uri.is_empty() {
@@ -206,10 +213,10 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "joinGroup" => commands::core_join_group().await.map(|_| json!({})),
         "updateGroup" => commands::core_update_group()
             .await
-            .map(|r| serde_json::to_value(r).unwrap()),
+            .and_then(|r| serde_json::to_value(r).map_err(|e| anyhow!(e))),
         "quitGroup" => commands::core_quit_group()
             .await
-            .map(|r| serde_json::to_value(r).unwrap()),
+            .and_then(|r| serde_json::to_value(r).map_err(|e| anyhow!(e))),
         "addDevice" => handle_add_device(request.params, manager).await,
         _ => {
             return JsonRpcResponse {

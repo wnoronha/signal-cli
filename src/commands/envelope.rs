@@ -120,25 +120,26 @@ fn call_envelope(body: &ContentBody) -> Option<CallMessageEnvelope> {
     let ContentBody::CallMessage(cm) = body else {
         return None;
     };
+    let null = || serde_json::Value::Null;
     Some(CallMessageEnvelope {
         offer_message: cm
             .offer
             .as_ref()
-            .map(|o| serde_json::to_value(format!("{:?}", o)).unwrap()),
+            .map(|o| serde_json::to_value(format!("{o:?}")).unwrap_or_else(|_| null())),
         ice_update_messages: Some(
             cm.ice_update
                 .iter()
-                .map(|i| serde_json::to_value(format!("{:?}", i)).unwrap())
+                .map(|i| serde_json::to_value(format!("{i:?}")).unwrap_or_else(|_| null()))
                 .collect(),
         ),
         hangup_message: cm
             .hangup
             .as_ref()
-            .map(|h| serde_json::to_value(format!("{:?}", h)).unwrap()),
+            .map(|h| serde_json::to_value(format!("{h:?}")).unwrap_or_else(|_| null())),
         busy_message: cm
             .busy
             .as_ref()
-            .map(|b| serde_json::to_value(format!("{:?}", b)).unwrap()),
+            .map(|b| serde_json::to_value(format!("{b:?}")).unwrap_or_else(|_| null())),
     })
 }
 
