@@ -228,8 +228,11 @@ pub async fn open_or_create_sqlite_store(
 
 async fn open_sqlite_at_path(db_path: &Path) -> Result<SqliteStore, SignalError> {
     let on_new_identity = active_store_identity();
-    info!("Opening account database: {:?}", db_path);
-    SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, on_new_identity)
+    tracing::debug!("Opening account database");
+    let path_str = db_path.to_str().ok_or_else(|| {
+        SignalError::StoreError("account database path is not valid UTF-8".to_string())
+    })?;
+    SqliteStore::open_with_passphrase(path_str, None, on_new_identity)
         .await
         .map_err(|e| SignalError::StoreError(e.to_string()))
 }

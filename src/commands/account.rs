@@ -112,7 +112,7 @@ pub(crate) async fn run_register(
         anyhow::bail!("Verification code cannot be empty.");
     }
 
-    println!("Verifying registration with code {}...", code);
+    println!("Verifying registration (code hidden)...");
     let registered_manager = manager.confirm_verification_code(code).await?;
     println!(
         "Successfully verified and registered account: {}",

@@ -27,7 +27,8 @@ async fn receive_loop<S: Store>(mut manager: Manager<S, Registered>) {
         Ok(messages) => {
             pin_mut!(messages);
             while let Some(content) = messages.next().await {
-                debug!("Received background message: {:?}", content);
+                debug!("Received background message (content redacted)");
+                let _ = content;
             }
             debug!("Background receive loop finished (queue empty)");
         }
