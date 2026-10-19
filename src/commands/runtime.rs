@@ -1,6 +1,10 @@
-//! Background receive loop used by one-shot CLI commands (not the daemon actor).
+//! Helpers to load a registered manager for one-shot CLI commands.
+//!
+//! One-shot commands must NOT spawn a background `receive_messages` loop:
+//! it would race the foreground `Manager`, drain the server queue, and
+//! discard messages (previously logged at `debug` only). Incoming mail is
+//! handled explicitly by `receive` (CLI) or the daemon actor (RPC).
 
-use futures::{StreamExt, pin_mut};
 use presage::Manager;
 use presage::manager::Registered;
 use presage::store::Store;
@@ -14,26 +18,6 @@ pub(crate) async fn load_registered<S: Store + Send>(
 pub(crate) async fn load_registered_and_receive<S: Store + Send>(
     store: S,
 ) -> anyhow::Result<Manager<S, Registered>> {
-    let manager = load_registered(store).await?;
-    let manager_receive = manager.clone();
-    tokio::task::spawn_local(receive_loop(manager_receive));
-    Ok(manager)
-}
-
-async fn receive_loop<S: Store>(mut manager: Manager<S, Registered>) {
-    use tracing::{debug, warn};
-    debug!("Starting background receive loop");
-    match manager.receive_messages().await {
-        Ok(messages) => {
-            pin_mut!(messages);
-            while let Some(content) = messages.next().await {
-                debug!("Received background message (content redacted)");
-                let _ = content;
-            }
-            debug!("Background receive loop finished (queue empty)");
-        }
-        Err(e) => {
-            warn!("Background receive loop failed: {:?}", e);
-        }
-    }
+    // Kept for call-site compatibility; intentionally no background task.
+    load_registered(store).await
 }

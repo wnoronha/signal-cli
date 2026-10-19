@@ -189,10 +189,10 @@ fn spawn_receive_loop(
                 return;
             }
         };
-        let messages_stream = {
-            let mut m = manager_handle.lock().await;
-            m.receive_messages().await.ok()
-        };
+        // Clone under a short lock, then run the network stream on the clone
+        // so RPC handlers are not blocked by `receive_messages().await`.
+        let mut receive_manager = manager_handle.lock().await.clone();
+        let messages_stream = receive_manager.receive_messages().await.ok();
         let Some(messages) = messages_stream else {
             return;
         };
@@ -200,10 +200,7 @@ fn spawn_receive_loop(
         while let Some(received_res) = messages.next().await {
             match received_res {
                 Received::Content(content) => {
-                    let envelope = {
-                        let m = manager_handle.lock().await;
-                        build_receive_envelope(&*m, &content).await
-                    };
+                    let envelope = build_receive_envelope(&receive_manager, &content).await;
                     let mut params = serde_json::Map::new();
                     params.insert(
                         "envelope".to_string(),
