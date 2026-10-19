@@ -178,6 +178,15 @@ async fn upload_attachments<S: Store>(
     use mime_guess::mime::APPLICATION_OCTET_STREAM;
     use presage::libsignal_service::sender::AttachmentSpec;
 
+    const MAX_ATTACHMENT_BYTES: usize = 100 * 1024 * 1024;
+    const MAX_ATTACHMENTS: usize = 10;
+
+    if attachment_filepath.len() > MAX_ATTACHMENTS {
+        anyhow::bail!(
+            "Too many attachments ({} > {MAX_ATTACHMENTS})",
+            attachment_filepath.len()
+        );
+    }
     let mut attachment_specs = Vec::new();
     for path_or_uri in attachment_filepath {
         if let Some(data_uri) = path_or_uri.strip_prefix("data:") {
@@ -209,6 +218,9 @@ async fn upload_attachments<S: Store>(
             let data = BASE64_STANDARD
                 .decode(base64_data)
                 .map_err(|e| anyhow!("Failed to decode base64 in data URI: {:?}", e))?;
+            if data.len() > MAX_ATTACHMENT_BYTES {
+                anyhow::bail!("Attachment too large (> {MAX_ATTACHMENT_BYTES} bytes)");
+            }
 
             attachment_specs.push((
                 AttachmentSpec {
@@ -228,6 +240,13 @@ async fn upload_attachments<S: Store>(
         } else {
             // Handle local file path (async: do not block the executor).
             let path = PathBuf::from(path_or_uri);
+            let meta = tokio::fs::metadata(&path).await?;
+            if !meta.is_file() {
+                anyhow::bail!("Attachment is not a regular file: {}", path.display());
+            }
+            if meta.len() > MAX_ATTACHMENT_BYTES as u64 {
+                anyhow::bail!("Attachment too large (> {MAX_ATTACHMENT_BYTES} bytes)");
+            }
             let data = tokio::fs::read(&path).await?;
             attachment_specs.push((
                 AttachmentSpec {
