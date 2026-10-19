@@ -26,6 +26,8 @@ For compatibility with Java signal-cli, these daemon/`receive` flags are parsed 
 * `--receive-mode`, `--no-receive-stdout`
 * `--dbus`, `--dbus-system`, `--bus-name` (use JSON-RPC instead)
 
+Global `--dbus`, `--dbus-system`, `--bus-name`, and `--disable-send-log` are also accepted on non-daemon commands for script compatibility; the CLI prints a warning and continues without D-Bus.
+
 == Trust policy
 
 Global `--trust-new-identities` applies when opening SQLite stores during a command or daemon session.
