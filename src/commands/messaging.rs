@@ -3,7 +3,6 @@ use base64::prelude::*;
 use futures::{StreamExt, pin_mut};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::time::UNIX_EPOCH;
 
 use presage::Manager;
 use presage::libsignal_service::content::{ContentBody, DataMessage, GroupContextV2};
@@ -17,7 +16,7 @@ use presage::model::messages::Received;
 use presage::store::Store;
 
 use crate::output::{ReceiveEnvelope, SendResult, SuccessResult};
-use crate::utils::{open_sqlite_store, resolve_recipient};
+use crate::utils::{now_millis, open_sqlite_store, resolve_recipient, u64_from_i64_nonnegative};
 
 use super::{build_receive_envelope, load_registered_and_receive, parse_group_id};
 
@@ -66,10 +65,7 @@ pub(crate) async fn core_send<S: Store + Send + 'static>(
     use tracing::warn;
     let attachments = upload_attachments(attachment, manager).await?;
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_millis() as u64;
+    let timestamp = now_millis()?;
 
     if let Some(ref gid) = group_id {
         let master_key = parse_group_id(gid)?;
@@ -318,7 +314,10 @@ pub(crate) async fn core_send_reaction<S: Store + Send + 'static>(
         emoji: Some(emoji),
         remove: Some(remove),
         target_author_aci: Some(target_author_aci.to_string()),
-        target_sent_timestamp: Some(target_timestamp as u64),
+        target_sent_timestamp: Some(u64_from_i64_nonnegative(
+            target_timestamp,
+            "target_timestamp",
+        )?),
         target_author_aci_binary: Some(target_author_aci.as_bytes().to_vec()),
     };
 
@@ -328,9 +327,7 @@ pub(crate) async fn core_send_reaction<S: Store + Send + 'static>(
     };
     let content_body = ContentBody::DataMessage(data_message);
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_millis() as u64;
+    let timestamp = now_millis()?;
 
     if let Some(gid) = group_id {
         let master_key = parse_group_id(&gid)?;
@@ -391,13 +388,14 @@ pub(crate) async fn core_send_receipt<S: Store + Send + 'static>(
 
     let receipt_message = ReceiptMessage {
         r#type: Some(receipt_type as i32),
-        timestamp: vec![target_timestamp as u64],
+        timestamp: vec![u64_from_i64_nonnegative(
+            target_timestamp,
+            "target_timestamp",
+        )?],
     };
 
     let content_body = ContentBody::ReceiptMessage(receipt_message);
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_millis() as u64;
+    let timestamp = now_millis()?;
 
     manager
         .send_message(service_id, content_body, timestamp)
@@ -436,9 +434,7 @@ pub(crate) async fn core_send_typing<S: Store + Send + 'static>(
         typing_message::Action::Started
     };
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_millis() as u64;
+    let timestamp = now_millis()?;
 
     let typing_message = TypingMessage {
         timestamp: Some(timestamp),
@@ -492,7 +488,10 @@ pub(crate) async fn core_remote_delete<S: Store + Send + 'static>(
     target_timestamp: i64,
 ) -> anyhow::Result<SuccessResult> {
     let delete = data_message::Delete {
-        target_sent_timestamp: Some(target_timestamp as u64),
+        target_sent_timestamp: Some(u64_from_i64_nonnegative(
+            target_timestamp,
+            "target_timestamp",
+        )?),
     };
 
     let data_message = DataMessage {
@@ -501,9 +500,7 @@ pub(crate) async fn core_remote_delete<S: Store + Send + 'static>(
     };
     let content_body = ContentBody::DataMessage(data_message);
 
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_millis() as u64;
+    let timestamp = now_millis()?;
 
     if let Some(gid) = group_id {
         let master_key = parse_group_id(&gid)?;

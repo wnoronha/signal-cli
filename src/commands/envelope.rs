@@ -10,13 +10,14 @@ use crate::output::{
 };
 
 use super::group_id::encode_group_id_b64;
+use crate::utils::saturating_millis;
 
 pub async fn build_receive_envelope<S: Store>(
     manager: &Manager<S, presage::manager::Registered>,
     content: &Content,
 ) -> ReceiveEnvelope {
     let source_uuid = content.metadata.sender.service_id_string();
-    let timestamp = content.metadata.server_timestamp.timestamp_millis() as u64;
+    let timestamp = saturating_millis(content.metadata.server_timestamp.timestamp_millis());
 
     let (thread_title, group_id) = match Thread::try_from(content) {
         Ok(thread) => {

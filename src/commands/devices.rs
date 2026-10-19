@@ -8,7 +8,9 @@ use presage::store::Store;
 use std::str::FromStr;
 
 use crate::output::{DeviceInfo, DeviceList, SuccessResult, UserStatus, WhoAmIInfo};
-use crate::utils::{open_sqlite_store, resolve_recipient};
+use crate::utils::{
+    now_millis, open_sqlite_store, resolve_recipient, saturating_millis, u32_from_i64_nonnegative,
+};
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 
@@ -62,8 +64,8 @@ pub(crate) async fn core_list_devices<S: Store + Send + 'static>(
         .map(|device| DeviceInfo {
             id: device.id.into(),
             name: device.name,
-            created_at: device.created_at.timestamp_millis() as u64,
-            last_seen: device.last_seen.timestamp_millis() as u64,
+            created_at: saturating_millis(device.created_at.timestamp_millis()),
+            last_seen: saturating_millis(device.last_seen.timestamp_millis()),
             is_this_device: device.id == current_device_id,
         })
         .collect();
@@ -81,7 +83,11 @@ pub(crate) async fn run_remove_device(
     let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
-    core_remove_device(&mut manager, device_id as u32).await
+    core_remove_device(
+        &mut manager,
+        u32_from_i64_nonnegative(device_id, "device_id")?,
+    )
+    .await
 }
 
 #[tracing::instrument(skip(manager))]
@@ -248,12 +254,10 @@ pub(crate) async fn core_send_session_reset<S: Store + Send + 'static>(
 ) -> anyhow::Result<SuccessResult> {
     let mut resolver = manager.clone();
     let service_id = resolve_recipient(&mut resolver, &recipient).await?;
-    let ts = timestamp.unwrap_or_else(|| {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_millis() as u64
-    });
+    let ts = match timestamp {
+        Some(v) => v,
+        None => now_millis()?,
+    };
     manager.send_session_reset(&service_id, ts).await?;
     Ok(SuccessResult {
         success: true,

@@ -426,7 +426,10 @@ pub async fn execute_command(
                 recipient,
                 group_id,
                 poll_timestamp,
-                option.into_iter().map(|o| o as i32).collect(),
+                option
+                    .into_iter()
+                    .map(|o| crate::utils::i32_from_i64_checked(o, "option"))
+                    .collect::<Result<Vec<_>, _>>()?,
             )
             .await?
             .render(args.output);
@@ -597,9 +600,14 @@ pub async fn execute_command(
             pack_id,
             sticker_id,
         } => {
-            run_get_sticker(&config_dir, active_account, pack_id, sticker_id as u32)
-                .await?
-                .render(args.output);
+            run_get_sticker(
+                &config_dir,
+                active_account,
+                pack_id,
+                crate::utils::u32_from_i64_nonnegative(sticker_id, "sticker_id")?,
+            )
+            .await?
+            .render(args.output);
             Ok(())
         }
 

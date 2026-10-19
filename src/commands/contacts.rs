@@ -15,7 +15,7 @@ use presage::store::Store;
 
 use crate::errors::SignalError;
 use crate::output::{ContactInfo, ContactList, ProfileInfo, SuccessResult};
-use crate::utils::{open_sqlite_store, resolve_recipient};
+use crate::utils::{open_sqlite_store, resolve_recipient, u32_from_i64_nonnegative};
 
 use super::{load_registered, load_registered_and_receive};
 
@@ -194,7 +194,7 @@ pub(crate) async fn core_update_contact<S: Store + Send + 'static>(
     }
 
     if let Some(e) = expiration {
-        contact.expire_timer = e as u32;
+        contact.expire_timer = u32_from_i64_nonnegative(e, "expiration")?;
     }
 
     if let Some(number) = phone_number {

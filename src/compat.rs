@@ -327,10 +327,8 @@ pub fn warn_unimplemented_cli_flags(cli: &Cli) {
             }
             warn_ignored(&names);
         }
-        Command::SendReceipt { username, .. } => {
-            if username.is_some() {
-                warn_ignored(&["--username (ignored)"]);
-            }
+        Command::SendReceipt { username, .. } if username.is_some() => {
+            warn_ignored(&["--username (ignored)"]);
         }
         Command::Trust {
             trust_all_known_keys,

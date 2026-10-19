@@ -138,6 +138,33 @@ pub fn on_new_identity_from_trust_mode(mode: TrustMode) -> OnNewIdentity {
     }
 }
 
+/// Current time as millis since UNIX_EPOCH, without panicking on clock skew.
+pub fn now_millis() -> Result<u64, SignalError> {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .map_err(|e| SignalError::Internal(format!("system clock is before UNIX_EPOCH: {e}")))
+}
+
+/// Saturate an i64 millis timestamp (e.g. from chrono) at zero for display.
+pub fn saturating_millis(v: i64) -> u64 {
+    u64::try_from(v).unwrap_or(0)
+}
+
+/// Checked conversions for CLI-provided timestamps/ids (reject negatives/overflow).
+pub fn u64_from_i64_nonnegative(v: i64, field: &str) -> Result<u64, SignalError> {
+    u64::try_from(v).map_err(|_| SignalError::Internal(format!("{field} must be >= 0, got {v}")))
+}
+
+pub fn u32_from_i64_nonnegative(v: i64, field: &str) -> Result<u32, SignalError> {
+    u32::try_from(v)
+        .map_err(|_| SignalError::Internal(format!("{field} must fit in u32 and be >= 0, got {v}")))
+}
+
+pub fn i32_from_i64_checked(v: i64, field: &str) -> Result<i32, SignalError> {
+    i32::try_from(v).map_err(|_| SignalError::Internal(format!("{field} must fit in i32, got {v}")))
+}
+
 /// Parse a Signal sticker pack share URI (`…#pack_id=…&pack_key=…`).
 pub fn parse_sticker_pack_uri(uri: &str) -> Result<(String, String)> {
     let fragment = uri.split('#').nth(1).ok_or_else(|| {
