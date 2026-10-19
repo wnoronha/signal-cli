@@ -59,8 +59,12 @@ pub fn init_tracing(verbose: bool, log_file: Option<PathBuf>, scrub_log: bool) {
     } else {
         EnvFilter::from_default_env()
             .add_directive(tracing::Level::INFO.into())
-            .add_directive("presage=warn".parse().unwrap())
-            .add_directive("libsignal_service=warn".parse().unwrap())
+            .add_directive("presage=warn".parse().expect("static tracing directive"))
+            .add_directive(
+                "libsignal_service=warn"
+                    .parse()
+                    .expect("static tracing directive"),
+            )
     };
 
     let builder = fmt()

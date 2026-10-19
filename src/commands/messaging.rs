@@ -16,9 +16,7 @@ use presage::manager::Registered;
 use presage::model::messages::Received;
 use presage::store::Store;
 
-use crate::output::{
-    ReceiveEnvelope, SendResult, SuccessResult,
-};
+use crate::output::{ReceiveEnvelope, SendResult, SuccessResult};
 use crate::utils::{open_sqlite_store, resolve_recipient};
 
 use super::{build_receive_envelope, load_registered_and_receive, parse_group_id};
@@ -87,7 +85,7 @@ pub(crate) async fn core_send<S: Store + Send + 'static>(
         };
         let content_body = ContentBody::DataMessage(data_message);
         manager
-            .send_message_to_group(&master_key.clone(), content_body, timestamp)
+            .send_message_to_group(&master_key, content_body, timestamp)
             .await?;
     } else {
         let mut resolved_recipients = Vec::new();
