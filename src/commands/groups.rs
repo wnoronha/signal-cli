@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use std::path::Path;
 
 use presage::Manager;
@@ -20,7 +19,7 @@ pub(crate) async fn run_list_groups(
     detailed: bool,
     group_ids: Vec<String>,
 ) -> anyhow::Result<GroupList> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_list_groups(&mut manager, detailed, group_ids).await

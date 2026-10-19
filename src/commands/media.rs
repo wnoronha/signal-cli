@@ -25,7 +25,7 @@ pub(crate) async fn run_get_avatar(
     profile: Option<String>,
     group_id: Option<String>,
 ) -> anyhow::Result<MediaData> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_get_avatar(&mut manager, contact, profile, group_id).await
@@ -111,7 +111,7 @@ pub(crate) async fn run_get_attachment(
     recipient: Option<String>,
     group_id: Option<String>,
 ) -> anyhow::Result<MediaData> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_get_attachment(&mut manager, id, recipient, group_id).await

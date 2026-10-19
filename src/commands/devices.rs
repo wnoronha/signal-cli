@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use std::path::Path;
 
 use presage::Manager;
@@ -21,7 +20,7 @@ pub(crate) async fn run_add_device(
     active_account: Option<String>,
     uri: String,
 ) -> anyhow::Result<()> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_add_device(&mut manager, uri).await?;
@@ -46,7 +45,7 @@ pub(crate) async fn run_list_devices(
     config_dir: &Path,
     active_account: Option<String>,
 ) -> anyhow::Result<DeviceList> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_list_devices(&mut manager).await
@@ -80,7 +79,7 @@ pub(crate) async fn run_remove_device(
     active_account: Option<String>,
     device_id: i64,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_remove_device(
@@ -108,7 +107,7 @@ pub(crate) async fn run_get_user_status(
     recipients: Vec<String>,
     usernames: Vec<String>,
 ) -> anyhow::Result<Vec<UserStatus>> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_get_user_status(&mut manager, recipients, usernames).await
@@ -193,7 +192,7 @@ pub(crate) async fn run_whoami(
     config_dir: &Path,
     active_account: Option<String>,
 ) -> anyhow::Result<WhoAmIInfo> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let manager = load_registered(store).await?;
     core_whoami(&manager).await
@@ -216,7 +215,7 @@ pub(crate) async fn run_clear_sessions(
     active_account: Option<String>,
     recipient: String,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let manager = load_registered(store).await?;
     core_clear_sessions(&manager, recipient).await
@@ -241,7 +240,7 @@ pub(crate) async fn run_send_session_reset(
     recipient: String,
     timestamp: Option<u64>,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered(store).await?;
     core_send_session_reset(&mut manager, recipient, timestamp).await

@@ -25,7 +25,7 @@ pub(crate) async fn run_list_contacts(
     name: Option<String>,
     detailed: bool,
 ) -> anyhow::Result<ContactList> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_list_contacts(&mut manager, name, detailed).await
@@ -83,7 +83,7 @@ pub(crate) async fn run_update_profile(
     about: Option<String>,
     about_emoji: Option<String>,
 ) -> anyhow::Result<ProfileInfo> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
@@ -133,7 +133,7 @@ pub(crate) async fn run_update_contact(
     expiration: Option<i64>,
     phone_number: Option<String>,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
@@ -213,7 +213,7 @@ pub(crate) async fn run_send_sync_request(
     config_dir: &Path,
     active_account: Option<String>,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered(store).await?;
     core_send_sync_request(&mut manager).await

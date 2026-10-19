@@ -15,7 +15,7 @@ pub(crate) async fn run_list_sticker_packs(
     config_dir: &Path,
     active_account: Option<String>,
 ) -> anyhow::Result<StickerPackList> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_list_sticker_packs(&mut manager).await
@@ -54,7 +54,7 @@ pub(crate) async fn run_add_sticker_pack(
     pack_id: String,
     pack_key: String,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_add_sticker_pack(&mut manager, pack_id, pack_key).await
@@ -90,7 +90,7 @@ pub(crate) async fn run_remove_sticker_pack(
     pack_id: String,
     pack_key: String,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_remove_sticker_pack(&mut manager, pack_id, pack_key).await
@@ -125,7 +125,7 @@ pub(crate) async fn run_get_sticker(
     pack_id: String,
     sticker_id: u32,
 ) -> anyhow::Result<MediaData> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_get_sticker(&mut manager, pack_id, sticker_id).await
@@ -161,6 +161,6 @@ pub(crate) async fn run_upload_sticker_pack(
     active_account: Option<String>,
     _manifest: String,
 ) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_upload_sticker_pack().await
 }

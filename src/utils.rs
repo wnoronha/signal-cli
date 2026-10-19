@@ -165,6 +165,24 @@ pub fn i32_from_i64_checked(v: i64, field: &str) -> Result<i32, SignalError> {
     i32::try_from(v).map_err(|_| SignalError::Internal(format!("{field} must fit in i32, got {v}")))
 }
 
+/// Require an active account, mapping the missing case to `AccountNotFound`
+/// (JSON-RPC `-32001`) instead of a generic internal error.
+pub fn require_account(active_account: Option<String>) -> Result<String, SignalError> {
+    active_account.ok_or_else(|| SignalError::AccountNotFound("(unspecified)".to_string()))
+}
+
+/// Validate an E.164-ish account string before it touches the filesystem.
+/// Rejects path separators, traversal, NUL, and non-`+` names.
+pub fn validate_account_name(account: &str) -> Result<(), SignalError> {
+    if !account.starts_with('+') || account.len() < 2 {
+        return Err(SignalError::AccountNotFound(account.to_string()));
+    }
+    if account.contains(['/', '\\', '\0']) || account.contains("..") || account.trim() != account {
+        return Err(SignalError::AccountNotFound(account.to_string()));
+    }
+    Ok(())
+}
+
 /// Parse a Signal sticker pack share URI (`…#pack_id=…&pack_key=…`).
 pub fn parse_sticker_pack_uri(uri: &str) -> Result<(String, String)> {
     let fragment = uri.split('#').nth(1).ok_or_else(|| {

@@ -31,7 +31,7 @@ pub(crate) async fn run_send(
     message_from_stdin: bool,
     attachment: Vec<String>,
 ) -> anyhow::Result<SendResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
@@ -122,7 +122,7 @@ pub(crate) async fn run_receive(
     active_account: Option<String>,
     max_messages: Option<usize>,
 ) -> anyhow::Result<Vec<ReceiveEnvelope>> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = Manager::load_registered(store).await?;
 
@@ -275,7 +275,7 @@ pub(crate) async fn run_send_reaction(
     target_timestamp: i64,
     remove: bool,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
@@ -364,7 +364,7 @@ pub(crate) async fn run_send_receipt(
     target_timestamp: i64,
     r#type: Option<String>,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
@@ -414,7 +414,7 @@ pub(crate) async fn run_send_typing(
     group_id: Option<String>,
     stop: bool,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
 
@@ -474,7 +474,7 @@ pub(crate) async fn run_remote_delete(
     _username: Option<String>,
     target_timestamp: i64,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_remote_delete(&mut manager, recipient, group_id, target_timestamp).await

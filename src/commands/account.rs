@@ -196,7 +196,7 @@ pub(crate) async fn run_delete_local_account_data(
     active_account: Option<String>,
     ignore_registered: bool,
 ) -> anyhow::Result<()> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let db_path = config_dir.join(format!("{}.db", account));
 
     if !db_path.exists() {
@@ -231,7 +231,7 @@ pub(crate) async fn run_unregister(
         .into());
     }
 
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let manager = load_registered(store).await?;
 
@@ -263,7 +263,7 @@ pub(crate) async fn run_submit_rate_limit_challenge(
     challenge: String,
     captcha: String,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let manager = load_registered(store).await?;
     core_submit_rate_limit_challenge(&manager, &challenge, &captcha).await

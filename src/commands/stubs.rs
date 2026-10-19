@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use anyhow::anyhow;
 use presage::Manager;
 use presage::manager::Registered;
 use presage::store::Store;
@@ -23,7 +22,7 @@ pub(crate) async fn run_list_identities(
     active_account: Option<String>,
     _recipient: Option<String>,
 ) -> anyhow::Result<Vec<IdentityInfo>> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_list_identities().await
 }
 
@@ -40,7 +39,7 @@ pub(crate) async fn run_trust(
     _recipient: String,
     _trust_level: String,
 ) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_trust().await
 }
 
@@ -49,7 +48,7 @@ pub(crate) async fn run_remove_contact(
     active_account: Option<String>,
     recipient: String,
 ) -> anyhow::Result<SuccessResult> {
-    let account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
     let mut manager = load_registered_and_receive(store).await?;
     core_remove_contact(&mut manager, recipient).await
@@ -82,7 +81,7 @@ pub(crate) async fn run_send_poll_create(
     _options: Vec<String>,
     _multiple_answers: bool,
 ) -> anyhow::Result<SendResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_send_poll_create().await
 }
 
@@ -101,7 +100,7 @@ pub(crate) async fn run_send_poll_vote(
     _target_timestamp: i64,
     _choices: Vec<i32>,
 ) -> anyhow::Result<SendResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_send_poll_vote().await
 }
 
@@ -119,7 +118,7 @@ pub(crate) async fn run_send_poll_terminate(
     _group_id: Option<String>,
     _target_timestamp: i64,
 ) -> anyhow::Result<SendResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_send_poll_terminate().await
 }
 
@@ -136,7 +135,7 @@ pub(crate) async fn run_block(
     _recipient: Vec<String>,
     _group_id: Vec<String>,
 ) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_block().await
 }
 
@@ -153,7 +152,7 @@ pub(crate) async fn run_unblock(
     _recipient: Vec<String>,
     _group_id: Vec<String>,
 ) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_unblock().await
 }
 
@@ -180,7 +179,7 @@ pub(crate) async fn run_send_contacts(
     _config_dir: &Path,
     active_account: Option<String>,
 ) -> anyhow::Result<SuccessResult> {
-    let _account = active_account.ok_or_else(|| anyhow!("Account not specified."))?;
+    let _account = crate::utils::require_account(active_account)?;
     core_send_contacts().await
 }
 
