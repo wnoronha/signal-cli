@@ -269,6 +269,101 @@ pub fn warn_unimplemented_cli_flags(cli: &Cli) {
             false,
             &None,
         ),
+        Command::ListContacts {
+            recipient,
+            all_recipients,
+            blocked,
+            internal,
+            ..
+        } => {
+            let mut names = Vec::new();
+            if !recipient.is_empty() {
+                names.push("--recipient (filter ignored, all contacts listed)");
+            }
+            if *all_recipients {
+                names.push("--all-recipients (ignored)");
+            }
+            if blocked.is_some() {
+                names.push("--blocked (ignored)");
+            }
+            if *internal {
+                names.push("--internal (ignored)");
+            }
+            warn_ignored(&names);
+        }
+        Command::UpdateContact {
+            nick_given_name,
+            nick_family_name,
+            note,
+            ..
+        } => {
+            let mut names = Vec::new();
+            if nick_given_name.is_some() {
+                names.push("--nick-given-name (ignored)");
+            }
+            if nick_family_name.is_some() {
+                names.push("--nick-family-name (ignored)");
+            }
+            if note.is_some() {
+                names.push("--note (ignored)");
+            }
+            warn_ignored(&names);
+        }
+        Command::SendReaction {
+            username,
+            notify_self,
+            story,
+            ..
+        } => {
+            let mut names = Vec::new();
+            if username.is_some() {
+                names.push("--username (ignored)");
+            }
+            if *notify_self {
+                names.push("--notify-self (ignored)");
+            }
+            if *story {
+                names.push("--story (ignored)");
+            }
+            warn_ignored(&names);
+        }
+        Command::SendReceipt { username, .. } => {
+            if username.is_some() {
+                warn_ignored(&["--username (ignored)"]);
+            }
+        }
+        Command::Trust {
+            trust_all_known_keys,
+            verified_safety_number,
+            ..
+        } => {
+            let mut names = Vec::new();
+            if *trust_all_known_keys {
+                names.push("--trust-all-known-keys (ignored: stub always errors)");
+            }
+            if verified_safety_number.is_some() {
+                names.push("--verified-safety-number (ignored: stub always errors)");
+            }
+            warn_ignored(&names);
+        }
+        Command::UpdateProfile {
+            avatar,
+            remove_avatar,
+            mobile_coin_address,
+            ..
+        } => {
+            let mut names = Vec::new();
+            if avatar.is_some() {
+                names.push("--avatar (ignored)");
+            }
+            if *remove_avatar {
+                names.push("--remove-avatar (ignored)");
+            }
+            if mobile_coin_address.is_some() {
+                names.push("--mobile-coin-address (ignored)");
+            }
+            warn_ignored(&names);
+        }
         _ => {}
     }
 }

@@ -74,14 +74,9 @@ pub async fn execute_command(
             .await
         }
 
-        crate::cli::Command::Verify {
-            verification_code: _,
-            pin: _,
-        } => Err(SignalError::NotImplemented(
-            "The verify subcommand is not used in this Rust port: run `register` and enter the SMS/voice code when prompted."
-                .to_string(),
-        )
-        .into()),
+        crate::cli::Command::Verify { .. } => {
+            not_implemented("verify (use `register` and enter the SMS/voice code when prompted)")
+        }
 
         crate::cli::Command::Link { name } => {
             run_link(&config_dir, active_account, name, args.service_environment).await
@@ -478,10 +473,7 @@ pub async fn execute_command(
         | crate::cli::Command::StartChangeNumber { .. }
         | crate::cli::Command::FinishChangeNumber { .. }
         | crate::cli::Command::UpdateConfiguration { .. } => {
-            Err(SignalError::NotImplemented(
-                "Account settings and migration commands are not yet supported by the underlying presage library.".to_string(),
-            )
-            .into())
+            not_implemented("account settings and migration commands (not exposed by presage)")
         }
 
         crate::cli::Command::UpdateContact {
@@ -615,18 +607,16 @@ pub async fn execute_command(
             crate::rpc::server::run_json_rpc(config_dir, active_account, args.command).await
         }
 
-        crate::cli::Command::SubmitRateLimitChallenge {
-            challenge,
-            captcha,
-        } => {
+        crate::cli::Command::SubmitRateLimitChallenge { challenge, captcha } => {
             run_submit_rate_limit_challenge(&config_dir, active_account, challenge, captcha)
                 .await?
                 .render(args.output);
             Ok(())
         }
 
-        crate::cli::Command::SendAdminDelete { .. }
-        | crate::cli::Command::UpdateDevice { .. } => not_implemented(args.command.name()),
+        crate::cli::Command::SendAdminDelete { .. } | crate::cli::Command::UpdateDevice { .. } => {
+            not_implemented(args.command.name())
+        }
     };
     if let Err(err) = &result {
         render_command_error(err, output);
