@@ -298,7 +298,9 @@ pub async fn resolve_recipient<S: Store + Send>(
         match PhoneNumber::from_str(recipient) {
             Ok(phone) => match manager.discover_contacts_by_phone_number(vec![phone]).await {
                 Ok(discovered) => {
-                    if let Some((_, Some(identity))) = discovered.into_iter().next() {
+                    // Take the first *resolved* identity, not just the first
+                    // map entry (which may be `(phone, None)`).
+                    if let Some(identity) = discovered.into_iter().filter_map(|(_, id)| id).next() {
                         return Ok(identity);
                     } else {
                         return Err(SignalError::RecipientNotFound(recipient.to_string()));
