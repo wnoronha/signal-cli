@@ -17,7 +17,7 @@ signal-cli - A commandline interface for the Signal messenger
 
 == Description
 
-signal-cli is a commandline interface for libsignal-service-java.
+signal-cli is a commandline interface for the Signal messenger, written in Rust.
 It supports registering, verifying, sending and receiving messages.
 For registering you need a phone number where you can receive SMS or incoming calls.
 signal-cli was primarily developed to be used on servers to notify admins of important events.
