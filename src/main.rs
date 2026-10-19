@@ -17,7 +17,7 @@ async fn main() {
     local
         .run_until(async {
             if let Err(err) = run(args).await {
-                error!("{:?}", err);
+                error!("{err:#}");
                 std::process::exit(1);
             }
         })

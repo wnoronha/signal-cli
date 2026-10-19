@@ -30,7 +30,7 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "trust" => handle_trust(request.params, manager).await,
         "removeContact" => handle_remove_contact(request.params, manager).await,
         "block" => handle_block(request.params, manager).await,
-        "unblock" => handle_block(request.params, manager).await, // Reuse handle_block for now
+        "unblock" => handle_unblock(request.params, manager).await,
         "sendContacts" => handle_send_contacts(manager).await,
         "sendSyncRequest" => handle_send_sync_request(manager).await,
         "sendPollCreate" => handle_send_poll_create(request.params, manager).await,
@@ -273,32 +273,18 @@ async fn handle_list_contacts<S: Store + Send + 'static>(
 }
 
 async fn handle_list_identities<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: ListIdentitiesParams = if let Some(p) = params {
-        serde_json::from_value(p)?
-    } else {
-        ListIdentitiesParams { recipient: None }
-    };
-    let result =
-        commands::run_list_identities(&std::path::PathBuf::new(), None, params.recipient).await?;
+    let result = commands::core_list_identities().await?;
     Ok(serde_json::to_value(result)?)
 }
 
 async fn handle_trust<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: TrustParams =
-        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
-    let result = commands::run_trust(
-        &std::path::PathBuf::new(),
-        None,
-        params.recipient,
-        params.trust_level,
-    )
-    .await?;
+    let result = commands::core_trust().await?;
     Ok(serde_json::to_value(result)?)
 }
 
@@ -313,86 +299,56 @@ async fn handle_remove_contact<S: Store + Send + 'static>(
 }
 
 async fn handle_block<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: BlockParams =
-        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
-    let result = commands::run_block(
-        &std::path::PathBuf::new(),
-        None,
-        params.recipient,
-        params.group_id,
-    )
-    .await?;
+    let result = commands::core_block().await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_unblock<S: Store + Send + 'static>(
+    _params: Option<Value>,
+    _manager: &mut Manager<S, Registered>,
+) -> Result<Value> {
+    let result = commands::core_unblock().await?;
     Ok(serde_json::to_value(result)?)
 }
 
 async fn handle_send_contacts<S: Store + Send + 'static>(
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let result = commands::run_send_contacts(&std::path::PathBuf::new(), None).await?;
+    let result = commands::core_send_contacts().await?;
     Ok(serde_json::to_value(result)?)
 }
 
 async fn handle_send_sync_request<S: Store + Send + 'static>(
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let result = commands::run_send_sync_request(&std::path::PathBuf::new(), None).await?;
+    let result = commands::core_send_sync_request().await?;
     Ok(serde_json::to_value(result)?)
 }
 
 async fn handle_send_poll_create<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: SendPollCreateParams =
-        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
-    let result = commands::run_send_poll_create(
-        &std::path::PathBuf::new(),
-        None,
-        params.recipient,
-        params.group_id,
-        params.question,
-        params.options,
-        params.multiple_answers.unwrap_or(false),
-    )
-    .await?;
+    let result = commands::core_send_poll_create().await?;
     Ok(serde_json::to_value(result)?)
 }
 
 async fn handle_send_poll_vote<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: SendPollVoteParams =
-        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
-    let result = commands::run_send_poll_vote(
-        &std::path::PathBuf::new(),
-        None,
-        params.recipient,
-        params.group_id,
-        params.target_timestamp,
-        params.choice,
-    )
-    .await?;
+    let result = commands::core_send_poll_vote().await?;
     Ok(serde_json::to_value(result)?)
 }
 
 async fn handle_send_poll_terminate<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: SendPollTerminateParams =
-        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
-    let result = commands::run_send_poll_terminate(
-        &std::path::PathBuf::new(),
-        None,
-        params.recipient,
-        params.group_id,
-        params.target_timestamp,
-    )
-    .await?;
+    let result = commands::core_send_poll_terminate().await?;
     Ok(serde_json::to_value(result)?)
 }
 
@@ -424,14 +380,10 @@ async fn handle_get_sticker<S: Store + Send + 'static>(
 }
 
 async fn handle_upload_sticker_pack<S: Store + Send + 'static>(
-    params: Option<Value>,
+    _params: Option<Value>,
     _manager: &mut Manager<S, Registered>,
 ) -> Result<Value> {
-    let params: UploadStickerPackParams =
-        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
-    let result =
-        commands::run_upload_sticker_pack(&std::path::PathBuf::new(), None, params.manifest)
-            .await?;
+    let result = commands::core_upload_sticker_pack().await?;
     Ok(serde_json::to_value(result)?)
 }
 
@@ -456,4 +408,27 @@ async fn handle_get_avatar<S: Store + Send + 'static>(
     let result =
         commands::core_get_avatar(manager, params.contact, params.profile, params.group_id).await?;
     Ok(serde_json::to_value(result)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::SignalError;
+
+    #[tokio::test]
+    async fn rpc_stub_returns_library_limitation_not_account_error() {
+        let err = commands::core_block().await.unwrap_err();
+        let signal_err = err.downcast_ref::<SignalError>().expect("SignalError");
+        assert!(matches!(signal_err, SignalError::LibraryLimitation(_)));
+        assert_eq!(signal_err.json_rpc_code(), -32005);
+        assert!(!signal_err.to_string().contains("Account not specified"));
+    }
+
+    #[tokio::test]
+    async fn rpc_unblock_stub_is_distinct_from_block() {
+        let block = commands::core_block().await.unwrap_err().to_string();
+        let unblock = commands::core_unblock().await.unwrap_err().to_string();
+        assert!(block.contains("Blocking"));
+        assert!(unblock.contains("Unblocking"));
+    }
 }

@@ -7,12 +7,48 @@ use presage::manager::Registered;
 use presage::model::identity::OnNewIdentity;
 use presage::store::Store;
 use presage_store_sqlite::SqliteStore;
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::info;
 use tracing_subscriber::{EnvFilter, fmt};
 
+use crate::cli::TrustMode;
 use crate::errors::SignalError;
+
+thread_local! {
+    static ACTIVE_STORE_IDENTITY: RefCell<Option<OnNewIdentity>> = const { RefCell::new(None) };
+}
+
+/// RAII scope for `--trust-new-identities` while opening account stores on this thread.
+pub struct StoreIdentityGuard;
+
+impl Drop for StoreIdentityGuard {
+    fn drop(&mut self) {
+        ACTIVE_STORE_IDENTITY.with(|c| *c.borrow_mut() = None);
+    }
+}
+
+/// Apply trust policy for subsequent [`open_sqlite_store`] calls on this thread.
+pub fn push_store_identity(mode: TrustMode) -> StoreIdentityGuard {
+    ACTIVE_STORE_IDENTITY.with(|c| {
+        *c.borrow_mut() = Some(on_new_identity_from_trust_mode(mode));
+    });
+    StoreIdentityGuard
+}
+
+fn active_store_identity() -> OnNewIdentity {
+    ACTIVE_STORE_IDENTITY.with(|c| {
+        c.borrow()
+            .clone()
+            .unwrap_or(OnNewIdentity::Trust)
+    })
+}
+
+/// Current store identity policy (for registration/link paths that open SQLite directly).
+pub fn current_store_identity() -> OnNewIdentity {
+    active_store_identity()
+}
 
 /// Initialize the tracing subscriber for structured logging.
 pub fn init_tracing(verbose: bool) {
@@ -68,7 +104,38 @@ pub fn find_local_accounts(config_dir: &Path) -> Result<Vec<String>> {
             }
         }
     }
+    accounts.sort();
     Ok(accounts)
+}
+
+/// Map CLI trust policy to presage's store identity handling.
+pub fn on_new_identity_from_trust_mode(mode: TrustMode) -> OnNewIdentity {
+    match mode {
+        TrustMode::Never => OnNewIdentity::Reject,
+        TrustMode::OnFirstUse | TrustMode::Always => OnNewIdentity::Trust,
+    }
+}
+
+/// Parse a Signal sticker pack share URI (`…#pack_id=…&pack_key=…`).
+pub fn parse_sticker_pack_uri(uri: &str) -> Result<(String, String)> {
+    let fragment = uri.split('#').nth(1).ok_or_else(|| {
+        anyhow!("Invalid sticker pack URI: missing #pack_id=…&pack_key=… fragment")
+    })?;
+    let mut pack_id = None;
+    let mut pack_key = None;
+    for pair in fragment.split('&') {
+        if let Some(val) = pair.strip_prefix("pack_id=") {
+            pack_id = Some(val.to_string());
+        } else if let Some(val) = pair.strip_prefix("pack_key=") {
+            pack_key = Some(val.to_string());
+        }
+    }
+    let pack_id = pack_id.ok_or_else(|| anyhow!("Invalid sticker pack URI: missing pack_id"))?;
+    let pack_key = pack_key.ok_or_else(|| anyhow!("Invalid sticker pack URI: missing pack_key"))?;
+    if pack_id.is_empty() || pack_key.is_empty() {
+        anyhow::bail!("Invalid sticker pack URI: pack_id and pack_key must be non-empty");
+    }
+    Ok((pack_id, pack_key))
 }
 
 /// Open a SQLite store for the given account.
@@ -76,6 +143,7 @@ pub async fn open_sqlite_store(
     config_dir: &Path,
     account: &str,
 ) -> Result<SqliteStore, SignalError> {
+    let on_new_identity = active_store_identity();
     let db_path = config_dir.join(format!("{}.db", account));
     if !db_path.exists() {
         return Err(SignalError::AccountNotFound(account.to_string()));
@@ -83,10 +151,9 @@ pub async fn open_sqlite_store(
 
     info!("Opening account database: {:?}", db_path);
 
-    let store =
-        SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, OnNewIdentity::Trust)
-            .await
-            .map_err(|e| SignalError::StoreError(e.to_string()))?;
+    let store = SqliteStore::open_with_passphrase(db_path.to_str().unwrap(), None, on_new_identity)
+        .await
+        .map_err(|e| SignalError::StoreError(e.to_string()))?;
     Ok(store)
 }
 
@@ -169,5 +236,36 @@ mod tests {
         assert_eq!(accounts.len(), 2);
         assert!(accounts.contains(&"+1234567890".to_string()));
         assert!(accounts.contains(&"+0987654321".to_string()));
+    }
+
+    #[test]
+    fn test_find_local_accounts_sorted() {
+        let dir = tempdir().unwrap();
+        let dir_path = dir.path();
+        File::create(dir_path.join("+999.db")).unwrap();
+        File::create(dir_path.join("+111.db")).unwrap();
+        let accounts = find_local_accounts(dir_path).unwrap();
+        assert_eq!(accounts, vec!["+111".to_string(), "+999".to_string()]);
+    }
+
+    #[test]
+    fn test_parse_sticker_pack_uri() {
+        let uri = "https://signal.art/addstickers/#pack_id=abc&pack_key=def";
+        let (id, key) = parse_sticker_pack_uri(uri).unwrap();
+        assert_eq!(id, "abc");
+        assert_eq!(key, "def");
+        assert!(parse_sticker_pack_uri("https://example.com/no-fragment").is_err());
+    }
+
+    #[test]
+    fn test_on_new_identity_from_trust_mode() {
+        assert!(matches!(
+            on_new_identity_from_trust_mode(TrustMode::Never),
+            OnNewIdentity::Reject
+        ));
+        assert!(matches!(
+            on_new_identity_from_trust_mode(TrustMode::Always),
+            OnNewIdentity::Trust
+        ));
     }
 }

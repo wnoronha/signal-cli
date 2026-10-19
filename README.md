@@ -2,7 +2,7 @@
 
 A command-line interface for Signal, written in Rust. It uses the [presage](https://github.com/whisperfish/presage) library.
 
-Status: v0.1.1. Some commands are stubs. They print an error that says the library does not support them yet.
+Status: v0.1.3-dev. Some commands are stubs. They print an error that says the library does not support them yet.
 
 ## Requirements
 

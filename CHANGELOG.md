@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3-dev] - Unreleased
+
+### Fixed
+- JSON-RPC: stub methods return library-limitation errors instead of "Account not specified".
+- JSON-RPC: `unblock` routes to the unblock handler (not `block`).
+- CLI: `addStickerPack` validates sticker pack URIs before install.
+
+### Changed
+- `--trust-new-identities` applies when opening account SQLite stores.
+- Version output uses `CARGO_PKG_VERSION`; account list order is sorted.
+- CLI errors use readable formatting on stderr.
+
 ## [0.1.1] - 2026-10-19
 
 ### Added
