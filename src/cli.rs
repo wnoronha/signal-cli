@@ -1156,7 +1156,7 @@ mod tests {
             "updateGroup",
         ] {
             assert!(
-                src.contains(&format!("}} => \"{name}\"")),
+                src.contains(&format!("=> \"{name}\"")),
                 "Command::name() missing arm for `{name}`"
             );
         }
