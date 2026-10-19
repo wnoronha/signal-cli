@@ -273,6 +273,7 @@ async fn handle_send<S: Store + Send + 'static>(
         params.group_id,
         params.message,
         params.attachments.unwrap_or_default(),
+        None, // daemon confinement via SIGNAL_CLI_ATTACHMENT_DIR env
     )
     .await?;
 

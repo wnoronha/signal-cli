@@ -66,6 +66,12 @@ pub struct Cli {
     #[clap(long = "disable-send-log", hide = true)]
     pub disable_send_log: bool,
 
+    #[clap(
+        long = "attachment-dir",
+        help = "Restrict file attachments to this directory (daemon operators: also honors SIGNAL_CLI_ATTACHMENT_DIR)"
+    )]
+    pub attachment_dir: Option<PathBuf>,
+
     #[clap(subcommand)]
     pub command: Command,
 }

@@ -163,6 +163,7 @@ pub async fn execute_command(
             edit_timestamp: _,
             no_urgent: _,
         } => {
+            let attachment_dir = args.attachment_dir.clone();
             run_send(
                 &config_dir,
                 active_account,
@@ -172,6 +173,7 @@ pub async fn execute_command(
                 message,
                 message_from_stdin,
                 attachment,
+                attachment_dir,
             )
             .await?
             .render(args.output);

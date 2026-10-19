@@ -29,6 +29,7 @@ pub(crate) async fn run_send(
     message: Option<String>,
     message_from_stdin: bool,
     attachment: Vec<String>,
+    attachment_dir: Option<PathBuf>,
 ) -> anyhow::Result<SendResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
@@ -49,6 +50,7 @@ pub(crate) async fn run_send(
         group_id,
         body_text,
         attachment,
+        attachment_dir,
     )
     .await
 }
@@ -61,9 +63,15 @@ pub(crate) async fn core_send<S: Store + Send + 'static>(
     group_id: Option<String>,
     body_text: Option<String>,
     attachment: Vec<String>,
+    attachment_dir: Option<PathBuf>,
 ) -> anyhow::Result<SendResult> {
     use tracing::warn;
-    let attachments = upload_attachments(attachment, manager).await?;
+    let dir = attachment_dir.or_else(|| {
+        std::env::var("SIGNAL_CLI_ATTACHMENT_DIR")
+            .ok()
+            .map(PathBuf::from)
+    });
+    let attachments = upload_attachments_in_dir(attachment, manager, dir).await?;
 
     let timestamp = now_millis()?;
 
@@ -175,6 +183,14 @@ async fn upload_attachments<S: Store>(
     attachment_filepath: Vec<String>,
     manager: &Manager<S, Registered>,
 ) -> anyhow::Result<Vec<presage::proto::AttachmentPointer>> {
+    upload_attachments_in_dir(attachment_filepath, manager, None).await
+}
+
+async fn upload_attachments_in_dir<S: Store>(
+    attachment_filepath: Vec<String>,
+    manager: &Manager<S, Registered>,
+    allowed_dir: Option<PathBuf>,
+) -> anyhow::Result<Vec<presage::proto::AttachmentPointer>> {
     use mime_guess::mime::APPLICATION_OCTET_STREAM;
     use presage::libsignal_service::sender::AttachmentSpec;
 
@@ -239,7 +255,20 @@ async fn upload_attachments<S: Store>(
             ));
         } else {
             // Handle local file path (async: do not block the executor).
+            // Reject symlinks so a daemon client cannot escape an
+            // --attachment-dir confinement via link swap.
             let path = PathBuf::from(path_or_uri);
+            let meta = tokio::fs::symlink_metadata(&path).await?;
+            if meta.file_type().is_symlink() {
+                anyhow::bail!("Attachment must not be a symlink: {}", path.display());
+            }
+            if let Some(ref dir) = allowed_dir {
+                let canonical_file = tokio::fs::canonicalize(&path).await?;
+                let canonical_dir = tokio::fs::canonicalize(dir).await?;
+                if !canonical_file.starts_with(&canonical_dir) {
+                    anyhow::bail!("Attachment outside --attachment-dir: {}", path.display());
+                }
+            }
             let meta = tokio::fs::metadata(&path).await?;
             if !meta.is_file() {
                 anyhow::bail!("Attachment is not a regular file: {}", path.display());
