@@ -67,8 +67,9 @@ pub(crate) async fn run_register(
     voice: bool,
     captcha: Option<String>,
     reregister: bool,
+    verification_code: Option<String>,
     service_env: crate::cli::ServiceEnvironment,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let account = active_account.ok_or_else(|| {
         anyhow!("Account phone number (-a / --account) must be specified for registration.")
     })?;
@@ -84,7 +85,7 @@ pub(crate) async fn run_register(
     let phone_number = PhoneNumber::from_str(&account)
         .map_err(|e| anyhow!("Invalid E.164 phone number: {:?}", e))?;
 
-    println!("Registering account {}...", account);
+    eprintln!("Registering account {}...", account);
     let manager = Manager::register(
         store,
         RegistrationOptions {
@@ -97,29 +98,39 @@ pub(crate) async fn run_register(
     )
     .await?;
 
-    println!("Registration successful! An SMS/voice code has been requested.");
-    println!("Please enter the verification code received (followed by enter):");
-
-    let mut code = String::new();
-    {
-        use tokio::io::{AsyncBufReadExt, BufReader};
-        BufReader::new(tokio::io::stdin())
-            .read_line(&mut code)
-            .await?;
-    }
-    let code = code.trim();
+    eprintln!("Registration successful! An SMS/voice code has been requested.");
+    let code_owned;
+    let code = match verification_code {
+        Some(c) => {
+            code_owned = c;
+            code_owned.trim().to_string()
+        }
+        None => {
+            eprintln!("Please enter the verification code received (followed by enter):");
+            let mut buf = String::new();
+            {
+                use tokio::io::{AsyncBufReadExt, BufReader};
+                BufReader::new(tokio::io::stdin())
+                    .read_line(&mut buf)
+                    .await?;
+            }
+            buf.trim().to_string()
+        }
+    };
 
     if code.is_empty() {
         anyhow::bail!("Verification code cannot be empty.");
     }
 
-    println!("Verifying registration (code hidden)...");
-    let registered_manager = manager.confirm_verification_code(code).await?;
-    println!(
-        "Successfully verified and registered account: {}",
-        registered_manager.registration_data().phone_number
-    );
-    Ok(())
+    eprintln!("Verifying registration (code hidden)...");
+    let registered_manager = manager.confirm_verification_code(&code).await?;
+    Ok(SuccessResult {
+        success: true,
+        message: format!(
+            "Successfully verified and registered account: {}",
+            registered_manager.registration_data().phone_number
+        ),
+    })
 }
 
 pub(crate) async fn run_link(
@@ -127,7 +138,7 @@ pub(crate) async fn run_link(
     active_account: Option<String>,
     name: Option<String>,
     service_env: crate::cli::ServiceEnvironment,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<SuccessResult> {
     let servers = match service_env {
         crate::cli::ServiceEnvironment::Live => SignalServers::Production,
         crate::cli::ServiceEnvironment::Staging => SignalServers::Staging,
@@ -147,7 +158,7 @@ pub(crate) async fn run_link(
         .map_err(|e| anyhow::anyhow!(e))?;
 
     let (provisioning_link_tx, provisioning_link_rx) = oneshot::channel();
-    println!("Linking secondary device...");
+    eprintln!("Linking secondary device...");
     let manager_fut =
         Manager::link_secondary_device(store, servers, device_name, provisioning_link_tx);
 
@@ -156,10 +167,12 @@ pub(crate) async fn run_link(
             Ok(url) => {
                 use qrcode::QrCode;
                 use qrcode::render::unicode;
-                println!("Please scan the QR code or use this URL to link your device:");
+                // Progress goes to stderr so stdout stays clean for
+                // `--output json` (final SuccessResult only).
+                eprintln!("Please scan the QR code or use this URL to link your device:");
                 match QrCode::new(url.as_str()) {
                     Ok(code) => {
-                        println!(
+                        eprintln!(
                             "{}",
                             code.render::<unicode::Dense1x2>()
                                 .quiet_zone(false)
@@ -169,7 +182,7 @@ pub(crate) async fn run_link(
                     }
                     Err(e) => eprintln!("Failed to generate QR code: {:?}", e),
                 }
-                println!("{}", url);
+                eprintln!("{}", url);
             }
             Err(error) => {
                 eprintln!("Linking was cancelled: {:?}", error);
@@ -180,18 +193,15 @@ pub(crate) async fn run_link(
     let (manager_res, _) = futures::future::join(manager_fut, link_rx_fut).await;
     let manager = manager_res?;
     let phone_number = manager.registration_data().phone_number.to_string();
-    println!("Successfully linked device for account: {}", phone_number);
 
     // Drop manager to release file locks and ensure flush
     drop(manager);
 
     finalize_link_database(config_dir, &db_name, &phone_number).await?;
-    println!(
-        "Account database saved to: {:?}",
-        config_dir.join(format!("{phone_number}.db"))
-    );
-
-    Ok(())
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Successfully linked device for account: {phone_number}"),
+    })
 }
 
 pub(crate) async fn run_delete_local_account_data(

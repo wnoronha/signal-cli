@@ -62,6 +62,7 @@ pub async fn execute_command(
             voice,
             captcha,
             reregister,
+            verification_code,
         } => {
             run_register(
                 &config_dir,
@@ -69,9 +70,12 @@ pub async fn execute_command(
                 voice,
                 captcha,
                 reregister,
+                verification_code,
                 args.service_environment,
             )
-            .await
+            .await?
+            .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::Verify { .. } => {
@@ -79,7 +83,10 @@ pub async fn execute_command(
         }
 
         crate::cli::Command::Link { name } => {
-            run_link(&config_dir, active_account, name, args.service_environment).await
+            run_link(&config_dir, active_account, name, args.service_environment)
+                .await?
+                .render(args.output);
+            Ok(())
         }
 
         crate::cli::Command::AddDevice { uri } => {

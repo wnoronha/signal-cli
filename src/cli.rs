@@ -120,6 +120,12 @@ pub enum Command {
             help = "Register even if account is already registered"
         )]
         reregister: bool,
+
+        #[clap(
+            long = "verification-code",
+            help = "SMS/voice verification code (non-interactive; otherwise prompted)"
+        )]
+        verification_code: Option<String>,
     },
 
     #[clap(
