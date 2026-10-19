@@ -36,7 +36,8 @@ pub fn render_command_error(err: &anyhow::Error, mode: OutputMode) {
             };
             println!(
                 "{}",
-                serde_json::to_string(&body).unwrap_or_else(|_| "{\"error\":\"unknown\"}".into())
+                serde_json::to_string(&body)
+                    .unwrap_or_else(|_| format!("{{\"error\":\"unknown\",\"code\":{code}}}"))
             );
         }
     }
@@ -176,13 +177,14 @@ impl Render for ContactList {
 
     fn render_text(&self) {
         for c in &self.contacts {
+            let phone = c.phone.as_deref().unwrap_or("(no phone)");
             if self.detailed {
                 println!("UUID: {}", c.uuid);
-                println!("Phone: {:?}", c.phone);
+                println!("Phone: {phone}");
                 println!("Name: {}", c.name);
                 println!("-------------------------------------------");
             } else {
-                println!("{} / {:?} / {}", c.uuid, c.phone, c.name);
+                println!("{} / {phone} / {}", c.uuid, c.name);
             }
         }
     }
@@ -294,7 +296,7 @@ impl Render for DeviceList {
                 ""
             };
             println!(
-                "- Device {} {}\n  Name: {}\n  Created: {}\n  Last seen: {}",
+                "- Device {} {}\n  Name: {}\n  Created: {}ms\n  Last seen: {}ms",
                 device.id, current_marker, device_name, device.created_at, device.last_seen
             );
         }
@@ -336,11 +338,16 @@ impl Render for MediaData {
     fn render_text(&self) {
         use base64::Engine;
         use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-        use std::io::Write;
 
-        if let Ok(bytes) = BASE64_STANDARD.decode(&self.data) {
-            let _ = std::io::stdout().write_all(&bytes);
-            let _ = std::io::stdout().flush();
+        match BASE64_STANDARD.decode(&self.data) {
+            Ok(bytes) => {
+                // Don't dump raw bytes to the terminal/pipeline; point at JSON mode instead.
+                eprintln!(
+                    "Attachment: {} bytes (binary suppressed in text mode; use --output json for base64)",
+                    bytes.len()
+                );
+            }
+            Err(e) => eprintln!("Failed to decode attachment data: {e}"),
         }
     }
 }
@@ -425,10 +432,13 @@ impl Render for Vec<ReceiveEnvelope> {
             println!("No new messages.");
         } else {
             for envelope in self {
-                println!(
-                    "Envelope from: {}",
-                    envelope.source_uuid.as_deref().unwrap_or("unknown")
-                );
+                let source = envelope
+                    .source_number
+                    .as_deref()
+                    .or(envelope.source.as_deref())
+                    .or(envelope.source_uuid.as_deref())
+                    .unwrap_or("unknown");
+                println!("Envelope from: {source}");
                 println!("Timestamp: {}", envelope.timestamp);
                 if let Some(ref dm) = envelope.data_message
                     && let Some(ref body) = dm.message
