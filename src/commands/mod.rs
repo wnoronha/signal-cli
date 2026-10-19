@@ -10,8 +10,8 @@ use crate::errors::SignalError;
 use crate::output::render_command_error;
 use crate::output::{
     AccountList, AttachmentEnvelope, ContactInfo, ContactList, DataMessageEnvelope, DeviceInfo,
-    DeviceList, GroupInfo, GroupList, MediaData, ProfileInfo, ReceiveEnvelope,
-    Render, SendResult, StickerInfo, StickerPackInfo, StickerPackList, SuccessResult, UserStatus,
+    DeviceList, GroupInfo, GroupList, MediaData, ProfileInfo, ReceiveEnvelope, Render, SendResult,
+    StickerInfo, StickerPackInfo, StickerPackList, SuccessResult, UserStatus,
 };
 use crate::utils::{
     find_local_accounts, open_or_create_sqlite_store, open_sqlite_store, parse_sticker_pack_uri,
@@ -579,10 +579,10 @@ pub async fn execute_command(
         | crate::cli::Command::StartChangeNumber { .. }
         | crate::cli::Command::FinishChangeNumber { .. }
         | crate::cli::Command::UpdateConfiguration { .. } => {
-            println!(
-                "Account settings and migration commands are not yet supported by the underlying presage library."
-            );
-            Ok(())
+            Err(SignalError::NotImplemented(
+                "Account settings and migration commands are not yet supported by the underlying presage library.".to_string(),
+            )
+            .into())
         }
 
         crate::cli::Command::UpdateContact {
@@ -1455,11 +1455,11 @@ pub(crate) async fn run_unregister(
     _active_account: Option<String>,
     _delete_account: bool,
 ) -> anyhow::Result<()> {
-    println!("The 'unregister' command is not yet implemented in this Rust version of signal-cli.");
-    println!(
-        "Unregistering requires server-side communication not currently exposed by the underlying library."
-    );
-    Ok(())
+    Err(SignalError::NotImplemented(
+        "unregister is not yet implemented (server-side unregister is not exposed by presage)."
+            .to_string(),
+    )
+    .into())
 }
 
 pub(crate) async fn run_set_pin(
@@ -1467,16 +1467,14 @@ pub(crate) async fn run_set_pin(
     _active_account: Option<String>,
     _pin: String,
 ) -> anyhow::Result<()> {
-    println!("The 'setPin' command is not yet implemented.");
-    Ok(())
+    Err(SignalError::NotImplemented("setPin is not yet implemented.".to_string()).into())
 }
 
 pub(crate) async fn run_remove_pin(
     _config_dir: &std::path::Path,
     _active_account: Option<String>,
 ) -> anyhow::Result<()> {
-    println!("The 'removePin' command is not yet implemented.");
-    Ok(())
+    Err(SignalError::NotImplemented("removePin is not yet implemented.".to_string()).into())
 }
 
 pub(crate) async fn run_get_avatar(
@@ -1836,9 +1834,10 @@ pub(crate) async fn run_join_group(
     _active_account: Option<String>,
     _uri: String,
 ) -> anyhow::Result<()> {
-    println!("The 'joinGroup' command is not yet implemented in this Rust version of signal-cli.");
-    println!("The underlying library does not yet support joining groups via URI.");
-    Ok(())
+    Err(SignalError::NotImplemented(
+        "joinGroup is not yet implemented (join via URI is not exposed by presage).".to_string(),
+    )
+    .into())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1864,11 +1863,11 @@ pub(crate) async fn run_update_group(
     _member_label_emoji: Option<String>,
     _member_label: Option<String>,
 ) -> anyhow::Result<()> {
-    println!("The 'updateGroup' command is not yet implemented.");
-    println!(
-        "Creating or modifying groups requires Group V2 operations not yet exposed by the underlying library."
-    );
-    Ok(())
+    Err(SignalError::NotImplemented(
+        "updateGroup is not yet implemented (Group V2 admin operations are not exposed by presage)."
+            .to_string(),
+    )
+    .into())
 }
 
 pub(crate) async fn run_quit_group(
@@ -1877,8 +1876,7 @@ pub(crate) async fn run_quit_group(
     _group_id: String,
     _delete: bool,
 ) -> anyhow::Result<()> {
-    println!("The 'quitGroup' command is not yet implemented.");
-    Ok(())
+    Err(SignalError::NotImplemented("quitGroup is not yet implemented.".to_string()).into())
 }
 
 pub(crate) async fn run_remote_delete(

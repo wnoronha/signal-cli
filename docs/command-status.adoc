@@ -16,8 +16,8 @@ Status values:
 | `verify` | Partial | Use `register` flow; subcommand prints guidance only
 | `listAccounts` | Implemented |
 | `deleteLocalAccountData` | Implemented | Does not unregister on server
-| `unregister`, `setPin`, `removePin` | Stub | Prints not-implemented message
-| `updateAccount`, `updateConfiguration`, change number | Stub | Account settings not in presage API
+| `unregister`, `setPin`, `removePin` | Stub | Exits non-zero; `Not implemented` / JSON error
+| `updateAccount`, `updateConfiguration`, change number | Stub | Exits non-zero; account settings not in presage API
 |===
 
 == Messaging
@@ -36,7 +36,7 @@ Status values:
 |===
 | Command | Status | Notes
 
-| `listGroups` | Implemented | Join/update/quit group stubbed
+| `listGroups` | Implemented | `joinGroup` / `updateGroup` / `quitGroup` stubbed (non-zero exit)
 | `listContacts`, `updateContact`, `updateProfile` | Implemented / partial |
 | `removeContact`, `block`, `unblock` | Stub |
 | `listIdentities`, `trust` | Stub |

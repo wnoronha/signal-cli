@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - macOS aarch64 release artifact in CI; optional `cargo audit` job.
 
 ### Fixed
+- CLI stubs (`unregister`, group admin, account migration, etc.) exit non-zero instead of success with a message only.
 - JSON-RPC: stub methods return library-limitation errors instead of "Account not specified".
 - JSON-RPC: `unblock` routes to the unblock handler (not `block`).
 - CLI: `addStickerPack` validates sticker pack URIs before install.
