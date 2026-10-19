@@ -1,6 +1,7 @@
 use anyhow::{Result, anyhow};
 use presage::Manager;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
+use presage::libsignal_service::proto::attachment_pointer::AttachmentIdentifier;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::manager::Registered;
 use presage::model::identity::OnNewIdentity;
@@ -87,6 +88,15 @@ pub async fn open_sqlite_store(
             .await
             .map_err(|e| SignalError::StoreError(e.to_string()))?;
     Ok(store)
+}
+
+/// Render an attachment identifier as the plain ID string that
+/// `getAttachment --id` accepts (no Rust debug wrappers).
+pub fn attachment_id_str(id: &AttachmentIdentifier) -> String {
+    match id {
+        AttachmentIdentifier::CdnId(cid) => cid.to_string(),
+        AttachmentIdentifier::CdnKey(key) => key.clone(),
+    }
 }
 
 /// Resolve a recipient string (phone number or UUID) to a ServiceId.

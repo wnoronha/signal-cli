@@ -211,7 +211,7 @@ pub async fn run_json_rpc(
                                                     id: a
                                                         .attachment_identifier
                                                         .as_ref()
-                                                        .map(|i| format!("{:?}", i))
+                                                        .map(crate::utils::attachment_id_str)
                                                         .unwrap_or_default(),
                                                     content_type: a.content_type.clone().unwrap_or_default(),
                                                     filename: a.file_name.clone(),
