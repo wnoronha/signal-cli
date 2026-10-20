@@ -6,12 +6,15 @@ MANDIR1 = $(PREFIX)/share/man/man1
 MANDIR5 = $(PREFIX)/share/man/man5
 PKG_NAME = signal-cli
 
-.PHONY: all build test lint clean install uninstall
+.PHONY: all build test lint clean install uninstall docker-build
 
 all: build
 
 build:
 	cargo build --release
+
+docker-build:
+	docker build -t signal-cli .
 
 test: lint
 	cargo test

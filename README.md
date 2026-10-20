@@ -63,6 +63,30 @@ signal-cli -a +1234567890 daemon --http   # 127.0.0.1:8080
 
 * Test scripts: `scripts/` (example: `python3 scripts/signal-cli-test.py --socket /tmp/signal.sock`).
 
+## Docker (sidecar / standalone)
+
+Images publish to GHCR on `main` and tag pushes (`:latest`, `:<tag>`, `:sha-<sha>`):
+
+```bash
+docker pull ghcr.io/wnoronha/signal-cli:v0.1.3-dev
+```
+
+Run as a sidecar (single account) — the default command is `daemon --http 0.0.0.0:8080`:
+
+```bash
+docker run -d --name signal-cli \
+  -e SIGNAL_ACCOUNT=+1234567890 \
+  -v signal-data:/data -p 8080:8080 \
+  ghcr.io/wnoronha/signal-cli:v0.1.3-dev
+```
+
+* `SIGNAL_ACCOUNT` sets the global `-a` flag. Omit it for multi-account mode (pass `account` per JSON-RPC request).
+* `SIGNAL_CONFIG` overrides the config dir (default `/data`; keep it on a volume — `+<phone>.db` lives there).
+* Override the command for anything else: `docker run ... <image> -a +1234567890 receive`.
+* App wiring: JSON-RPC `POST http://signal-cli:8080/api/v1/rpc`, liveness `GET /api/v1/check`, push notifications via SSE `GET /api/v1/events`.
+
+Build locally: `make docker-build` (or `docker build -t signal-cli .`).
+
 ## Command help
 
 ```bash

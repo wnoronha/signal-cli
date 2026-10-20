@@ -1,6 +1,6 @@
 [package]
 name = "signal-cli"
-version = "0.1.3-dev"
+version = "0.1.3"
 edition = "2024"
 description = "A Rust implementation of signal-cli, a command-line interface for Signal."
 license = "AGPL-3.0-only"

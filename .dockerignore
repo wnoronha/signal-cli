@@ -1,0 +1,10 @@
+target/
+.git/
+.github/
+docs/
+scripts/
+*.log
+*.pid
+responder.py
+Dockerfile
+.dockerignore
