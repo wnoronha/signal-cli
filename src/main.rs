@@ -38,17 +38,10 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
     let mut local_accounts = utils::find_local_accounts(&config_dir)?;
 
     // 3. Resolve active account (if required by subcommand)
-    let active_account = if !args.command.requires_account() {
-        // Command does not require an active account to start
-        None
-    } else if args.command.name() == "register" {
-        // Register requires the active account to be specified via -a
-        let account = args.account.clone().ok_or_else(|| {
-            anyhow::anyhow!("The register command requires the --account / -a parameter to specify your phone number.")
-        })?;
-        utils::validate_account_name(&account).map_err(|e| anyhow::anyhow!(e))?;
-        Some(account)
-    } else if matches!(
+    // NOTE: Daemon/JsonRpc must come first: they accept `-a` as the default
+    // account but also run accountless (multi-account mode), so
+    // `requires_account()` is false for them.
+    let active_account = if matches!(
         args.command,
         crate::cli::Command::Daemon { .. } | crate::cli::Command::JsonRpc { .. }
     ) {
@@ -58,6 +51,16 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
         } else {
             None
         }
+    } else if !args.command.requires_account() {
+        // Command does not require an active account to start
+        None
+    } else if args.command.name() == "register" {
+        // Register requires the active account to be specified via -a
+        let account = args.account.clone().ok_or_else(|| {
+            anyhow::anyhow!("The register command requires the --account / -a parameter to specify your phone number.")
+        })?;
+        utils::validate_account_name(&account).map_err(|e| anyhow::anyhow!(e))?;
+        Some(account)
     } else if let Some(ref account) = args.account {
         utils::validate_account_name(account).map_err(|e| anyhow::anyhow!(e))?;
         Some(account.clone())
