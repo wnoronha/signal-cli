@@ -1,0 +1,65 @@
+= Daemon & JSON-RPC (Rust port notes)
+
+== Endpoints
+
+When `--http` is set (default `127.0.0.1:8080` if the flag is given without a value):
+
+* `POST /api/v1/rpc` — JSON-RPC 2.0 (single object or batch array)
+* `GET /api/v1/events` — Server-Sent Events for incoming messages
+* `GET /api/v1/check` — liveness (`OK`)
+
+`--tcp` and `--socket` bind to the address or path you provide (defaults: `127.0.0.1:8080`, `/tmp/signal-cli.sock`).
+
+Only bind to interfaces you trust. There is no built-in authentication on the HTTP/TCP API.
+
+== Receive behavior
+
+* *CLI one-shot commands* — Many commands call an internal background receive loop to drain the queue while the command runs (`load_registered_and_receive` in `src/commands/runtime.rs`). This is not the same as daemon mode.
+* *Daemon / jsonRpc* — Long-lived receive streams (one per local account when started without `-a`, or one for `-a`) feed SSE/JSON-RPC notifications. RPC calls load a cached `Manager` per `params.account` (or the CLI `-a` default).
+
+== Flags accepted but not implemented
+
+For compatibility with Java signal-cli, these daemon/`receive` flags are parsed but ignored in this Rust port:
+
+* `--ignore-attachments`, `--ignore-stories`, `--ignore-avatars`, `--ignore-stickers`
+* `--send-read-receipts`
+* `--receive-mode`, `--no-receive-stdout`
+* `--dbus`, `--dbus-system`, `--bus-name` (use JSON-RPC instead)
+
+Global `--dbus`, `--dbus-system`, `--bus-name`, and `--disable-send-log` are also accepted on non-daemon commands for script compatibility; the CLI prints a warning and continues without D-Bus.
+
+== Won't implement (compat flags)
+
+These flags stay parsed for script compatibility. They are not planned unless presage adds support or filtering is implemented locally:
+
+* D-Bus daemon (`--dbus`, `--dbus-system`, `--bus-name`) — use JSON-RPC daemon instead.
+* `--receive-mode`, `--no-receive-stdout` — daemon receive routing differs; use SSE/HTTP events.
+* `--ignore-stories` — story content not handled in this port.
+* `--disable-send-log` — no send log file in Rust port.
+
+Other ignored flags (attachments, avatars, stickers, read receipts) may get local filtering later; until then they only emit a stderr warning.
+
+== Trust policy
+
+Global `--trust-new-identities` applies when opening SQLite stores during a command or daemon session.
+`Never` maps to presage `Reject`; `on-first-use` and `always` map to `Trust` (presage has no finer granularity).
+
+== JSON-RPC methods
+
+Implemented methods call `core_*` handlers with the loaded manager.
+Stub methods return JSON-RPC error code `-32005` (library limitation), not account errors.
+
+=== Multi-account mode
+
+* Start `daemon` or `jsonRpc` without `-a` to serve every local `+.db` account.
+* Pass `"account":"+E164"` on each RPC that needs a registered manager (except account-less methods below).
+* `listAccounts` returns the local account list.
+* `startLink` / `finishLink` provision a new linked account (temp SQLite file renamed to `+number.db` on success). Only one link session at a time. Restart the daemon (or start it with the new account in `-a` mode) if you need a background receive loop for that account immediately after linking.
+* `subscribeReceive` / `unsubscribeReceive` are compatibility no-ops: this port always receives in the background and returns subscription id `0`.
+
+See `src/rpc/handler.rs` for the method list and link:signal-cli-jsonrpc.5.adoc[signal-cli-jsonrpc(5)] for upstream API documentation.
+
+== JSON-RPC behavioral notes
+
+* `listGroups` from the daemon always requests *detailed* group metadata (`detailed: true` internally).
+* `listGroups` JSON-RPC `result` is an array of group objects (Java shape), not a wrapper object.

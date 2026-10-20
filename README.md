@@ -1,13 +1,15 @@
 # signal-cli (Rust)
 
-A command-line interface for Signal, written in Rust. It uses the [presage](https://github.com/whisperfish/presage) library.
+CLI for Signal. Written in Rust. Uses [presage](https://github.com/whisperfish/presage).
 
-Status: v0.1.1. Some commands are stubs. They print an error that says the library does not support them yet.
+Work in progress. Some commands are stubs. Presage does not support them yet; they exit with an error. Use `signal-cli --version` to see your build. See GitHub releases and git tags for release history.
+
+This port targets [AsamK/signal-cli](https://github.com/AsamK/signal-cli) CLI and JSON-RPC behavior. It does not keep compatibility with earlier Rust-only output or flags.
 
 ## Requirements
 
 * Rust toolchain (stable)
-* `libsqlite3-dev`, `pkg-config`, `protobuf-compiler`, `cmake`, `libssl-dev` (Debian/Ubuntu)
+* Debian/Ubuntu: `libsqlite3-dev`, `pkg-config`, `protobuf-compiler`, `cmake`, `libssl-dev`
 
 ## Install
 
@@ -17,7 +19,8 @@ cd signal-cli
 make install
 ```
 
-This puts the binary in `~/.local/bin/signal-cli`. Or: `cargo build --release` (binary in `./target/release/`).
+* `make install` installs to `~/.local/bin/signal-cli`.
+* Or run `cargo build --release`. Binary path: `./target/release/signal-cli`.
 
 ## Link an account
 
@@ -25,28 +28,31 @@ This puts the binary in `~/.local/bin/signal-cli`. Or: `cargo build --release` (
 signal-cli link
 ```
 
-Scan the QR code with Signal on your phone (Settings → Linked devices). The QR code prints in the terminal. If you scan from another machine, use the printed `sgnl://` URL.
+* Scan the QR code in Signal: Settings → Linked devices.
+* The QR code prints in the terminal.
+* On another machine, open the printed `sgnl://` URL.
 
-To register a new number instead:
+Register a new number:
 
 ```bash
 signal-cli -a +1234567890 register
 ```
 
-Enter the SMS code when asked. If the server asks for a captcha, get a token at `https://signalcaptchas.org/registration/generate.html` and pass `--captcha <token>`.
+* Enter the SMS code when prompted.
+* For captcha: open `https://signalcaptchas.org/registration/generate.html`, then pass `--captcha <token>`.
 
 ## Send and receive
 
 ```bash
-# One account configured: -a is optional. More than one: -a is required.
+# One account: -a is optional. Multiple accounts: -a is required.
 signal-cli -a +1234567890 send -m "Hello" +0987654321
 signal-cli -a +1234567890 send -m "Photo" -a ./photo.jpg +0987654321
 signal-cli -a +1234567890 receive
 ```
 
-Use `--output json` for machine-readable output.
-
-If a phone number does not resolve (Signal privacy settings), use the recipient's UUID. To map a UUID to a number locally: `updateContact <UUID> --phone-number <NUMBER>`.
+* Use `--output json` for machine-readable output.
+* If a number does not resolve, use the recipient UUID.
+* Map UUID to number locally: `updateContact <UUID> --phone-number <NUMBER>`.
 
 ## Daemon mode (JSON-RPC)
 
@@ -55,20 +61,31 @@ signal-cli -a +1234567890 daemon --socket /tmp/signal.sock
 signal-cli -a +1234567890 daemon --http   # 127.0.0.1:8080
 ```
 
-Test scripts are in `scripts/` (e.g. `python3 scripts/signal-cli-test.py --socket /tmp/signal.sock`).
+* Test scripts: `scripts/` (example: `python3 scripts/signal-cli-test.py --socket /tmp/signal.sock`).
 
-## Full command list
+## Command help
 
 ```bash
 signal-cli --help
 ```
 
-Reference docs are in `docs/`: `signal-cli.1.adoc` (all commands), `signal-cli-jsonrpc.5.adoc` (daemon API), `getting-started.adoc`, `faq.adoc`.
+## Documentation
+
+| Doc | Topic |
+|-----|--------|
+| `docs/command-status.adoc` | Implemented vs stub commands |
+| `docs/daemon-rust-port.adoc` | HTTP, SSE, ignored daemon flags |
+| `docs/faq.adoc` | Common questions |
+| `docs/getting-started.adoc` | First-time setup |
+| `docs/signal-cli-jsonrpc.5.adoc` | Daemon JSON-RPC API |
+| `docs/signal-cli.1.adoc` | Full command reference |
 
 ## Data storage
 
-Account databases are SQLite files in `~/.local/share/signal-cli/`, named `+<phone>.db`. Change the location with `--config <path>`.
+* Account data: SQLite in `~/.local/share/signal-cli/`.
+* File name: `+<phone>.db`.
+* Override path: `--config <path>`.
 
 ## License
 
-AGPL-3.0-only. See [LICENSE](LICENSE). This is a port of [AsamK/signal-cli](https://github.com/AsamK/signal-cli).
+AGPL-3.0-only. See [LICENSE](LICENSE). Port of [AsamK/signal-cli](https://github.com/AsamK/signal-cli).

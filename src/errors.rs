@@ -31,9 +31,6 @@ pub enum SignalError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
-
-    #[error("Anyhow error: {0}")]
-    Other(#[from] anyhow::Error),
 }
 
 impl SignalError {
@@ -47,7 +44,7 @@ impl SignalError {
             SignalError::LibraryLimitation(_) => -32005,
             SignalError::StoreError(_) => -32006,
             SignalError::ServerError(_) => -32007,
-            _ => -32603, // Internal error
+            SignalError::Internal(_) | SignalError::Io(_) => -32603, // Internal error
         }
     }
 }

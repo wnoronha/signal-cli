@@ -1,5 +1,47 @@
 use crate::cli::OutputMode;
+use crate::errors::SignalError;
 use serde::{Deserialize, Serialize};
+
+/// Marker: [`render_command_error`] already wrote the failure to stdout/stderr.
+#[derive(Debug)]
+pub struct ErrorReported;
+
+impl std::fmt::Display for ErrorReported {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("command error already reported")
+    }
+}
+
+impl std::error::Error for ErrorReported {}
+
+#[derive(Serialize)]
+struct CliErrorBody {
+    error: String,
+    code: i32,
+}
+
+/// Emit a command failure in plain text or JSON (aligned with JSON-RPC error codes).
+pub fn render_command_error(err: &anyhow::Error, mode: OutputMode) {
+    let (code, message) = if let Some(signal_err) = err.downcast_ref::<SignalError>() {
+        (signal_err.json_rpc_code(), signal_err.to_string())
+    } else {
+        (-32603, err.to_string())
+    };
+    match mode {
+        OutputMode::PlainText => eprintln!("{message}"),
+        OutputMode::Json => {
+            let body = CliErrorBody {
+                error: message,
+                code,
+            };
+            println!(
+                "{}",
+                serde_json::to_string(&body)
+                    .unwrap_or_else(|_| format!("{{\"error\":\"unknown\",\"code\":{code}}}"))
+            );
+        }
+    }
+}
 
 /// A trait for types that can be rendered to the console in multiple formats.
 pub trait Render: Serialize {
@@ -33,7 +75,7 @@ impl Render for AccountList {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 pub struct SendResult {
     pub timestamp: u64,
 }
@@ -45,11 +87,28 @@ impl Render for SendResult {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct GroupInfo {
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub members_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_member: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_blocked: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_members: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requesting_members: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admins: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_invite_link: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -59,6 +118,11 @@ pub struct GroupList {
 }
 
 impl Render for GroupList {
+    fn render_json(&self) -> String {
+        // Java signal-cli JSON-RPC returns a group array, not a wrapper object.
+        serde_json::to_string(&self.groups).unwrap_or_else(|_| "[]".to_string())
+    }
+
     fn render_text(&self) {
         for g in &self.groups {
             if self.detailed {
@@ -67,7 +131,15 @@ impl Render for GroupList {
                 if let Some(ref desc) = g.description {
                     println!("Description: {}", desc);
                 }
-                println!("Members count: {}", g.members_count);
+                if let Some(count) = g.members_count {
+                    println!("Members count: {count}");
+                }
+                if let Some(ref members) = g.members {
+                    println!("Members: {}", members.join(", "));
+                }
+                if let Some(ref admins) = g.admins {
+                    println!("Admins: {}", admins.join(", "));
+                }
                 println!("-------------------------------------------");
             } else {
                 println!("{} - {}", g.id, g.name);
@@ -77,10 +149,19 @@ impl Render for GroupList {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct ContactInfo {
     pub uuid: String,
     pub phone: Option<String>,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about_emoji: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -90,25 +171,49 @@ pub struct ContactList {
 }
 
 impl Render for ContactList {
+    fn render_json(&self) -> String {
+        serde_json::to_string(&self.contacts).unwrap_or_else(|_| "[]".to_string())
+    }
+
     fn render_text(&self) {
         for c in &self.contacts {
+            let phone = c.phone.as_deref().unwrap_or("(no phone)");
             if self.detailed {
                 println!("UUID: {}", c.uuid);
-                println!("Phone: {:?}", c.phone);
+                println!("Phone: {phone}");
                 println!("Name: {}", c.name);
                 println!("-------------------------------------------");
             } else {
-                println!("{} / {:?} / {}", c.uuid, c.phone, c.name);
+                println!("{} / {phone} / {}", c.uuid, c.name);
             }
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct UserStatus {
     pub recipient: String,
     pub is_registered: bool,
     pub aci: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub about_emoji: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct WhoAmIInfo {
+    pub number: String,
+    pub uuid: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pni: Option<String>,
+    pub device_id: u32,
 }
 
 impl Render for Vec<UserStatus> {
@@ -120,10 +225,27 @@ impl Render for Vec<UserStatus> {
                     s.recipient,
                     s.aci.as_deref().unwrap_or("unknown")
                 );
+                if let Some(ref n) = s.given_name {
+                    println!("  Profile name: {n}");
+                }
+                if let Some(ref a) = s.about {
+                    println!("  About: {a}");
+                }
             } else {
                 println!("Recipient: {} is NOT registered on Signal.", s.recipient);
             }
         }
+    }
+}
+
+impl Render for WhoAmIInfo {
+    fn render_text(&self) {
+        println!("Number: {}", self.number);
+        println!("UUID: {}", self.uuid);
+        if let Some(ref pni) = self.pni {
+            println!("PNI: {pni}");
+        }
+        println!("Device ID: {}", self.device_id);
     }
 }
 
@@ -150,6 +272,7 @@ impl Render for Vec<IdentityInfo> {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     pub id: u32,
     pub name: Option<String>,
@@ -173,7 +296,7 @@ impl Render for DeviceList {
                 ""
             };
             println!(
-                "- Device {} {}\n  Name: {}\n  Created: {}\n  Last seen: {}",
+                "- Device {} {}\n  Name: {}\n  Created: {}ms\n  Last seen: {}ms",
                 device.id, current_marker, device_name, device.created_at, device.last_seen
             );
         }
@@ -207,6 +330,20 @@ impl Render for SuccessResult {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VersionInfo {
+    pub version: String,
+}
+
+impl Render for VersionInfo {
+    fn render_text(&self) {
+        println!(
+            "signal-cli {} (Rust lightweight drop-in replacement)",
+            self.version
+        );
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct MediaData {
     pub data: String, // Base64 encoded
 }
@@ -215,11 +352,16 @@ impl Render for MediaData {
     fn render_text(&self) {
         use base64::Engine;
         use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
-        use std::io::Write;
 
-        if let Ok(bytes) = BASE64_STANDARD.decode(&self.data) {
-            let _ = std::io::stdout().write_all(&bytes);
-            let _ = std::io::stdout().flush();
+        match BASE64_STANDARD.decode(&self.data) {
+            Ok(bytes) => {
+                // Don't dump raw bytes to the terminal/pipeline; point at JSON mode instead.
+                eprintln!(
+                    "Attachment: {} bytes (binary suppressed in text mode; use --output json for base64)",
+                    bytes.len()
+                );
+            }
+            Err(e) => eprintln!("Failed to decode attachment data: {e}"),
         }
     }
 }
@@ -265,8 +407,14 @@ impl Render for StickerPackList {
 #[serde(rename_all = "camelCase")]
 pub struct ReceiveEnvelope {
     pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_number: Option<String>,
     pub source_uuid: Option<String>,
     pub source_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group_id: Option<String>,
     pub source_device: Option<u32>,
     pub timestamp: u64,
     pub server_received_timestamp: Option<u64>,
@@ -298,10 +446,13 @@ impl Render for Vec<ReceiveEnvelope> {
             println!("No new messages.");
         } else {
             for envelope in self {
-                println!(
-                    "Envelope from: {}",
-                    envelope.source_uuid.as_deref().unwrap_or("unknown")
-                );
+                let source = envelope
+                    .source_number
+                    .as_deref()
+                    .or(envelope.source.as_deref())
+                    .or(envelope.source_uuid.as_deref())
+                    .unwrap_or("unknown");
+                println!("Envelope from: {source}");
                 println!("Timestamp: {}", envelope.timestamp);
                 if let Some(ref dm) = envelope.data_message
                     && let Some(ref body) = dm.message
@@ -329,6 +480,7 @@ impl Render for Vec<ReceiveEnvelope> {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DataMessageEnvelope {
+    pub timestamp: u64,
     pub message: Option<String>,
     pub attachments: Option<Vec<AttachmentEnvelope>>,
     pub sticker: Option<StickerEnvelope>,
@@ -336,6 +488,10 @@ pub struct DataMessageEnvelope {
     pub expires_in_seconds: u32,
     pub is_expiration_update: bool,
     pub view_once: bool,
+    #[serde(default)]
+    pub mentions: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub contacts: Vec<serde_json::Value>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -366,4 +522,37 @@ pub struct AttachmentEnvelope {
     pub height: Option<u32>,
     pub caption: Option<String>,
     pub upload_timestamp: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn group_info_json_uses_camel_case_and_base64_id_field() {
+        let group = GroupInfo {
+            id: "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=".into(),
+            name: "My Group".into(),
+            description: Some("desc".into()),
+            members_count: None,
+            is_member: Some(true),
+            is_blocked: Some(false),
+            members: Some(vec!["+15551234567".into()]),
+            pending_members: Some(vec![]),
+            requesting_members: Some(vec![]),
+            admins: Some(vec![]),
+            group_invite_link: None,
+        };
+        let json: serde_json::Value = serde_json::to_value(&group).unwrap();
+        assert!(json.get("isMember").is_some());
+        assert!(json.get("pendingMembers").is_some());
+        assert_eq!(json.get("id").unwrap().as_str().unwrap().len(), 44);
+    }
+
+    #[test]
+    fn send_result_json_shape() {
+        let result = SendResult { timestamp: 999 };
+        let json: serde_json::Value = serde_json::to_value(&result).unwrap();
+        assert_eq!(json.get("timestamp").unwrap(), 999);
+    }
 }

@@ -38,29 +38,39 @@ pub struct Cli {
     )]
     pub verbose: bool,
 
-    #[clap(long = "log-file", help = "Write log output to the given file")]
+    #[clap(
+        long = "log-file",
+        help = "Append tracing log output to this file (default: stderr only)"
+    )]
     pub log_file: Option<PathBuf>,
 
     #[clap(
         long = "scrub-log",
-        help = "Scrub possibly sensitive information from the log"
+        help = "Not implemented: logs are not redacted (accepted for Java signal-cli compatibility)"
     )]
     pub scrub_log: bool,
 
-    #[clap(long = "dbus", help = "Make request via user dbus")]
+    #[clap(
+        long = "dbus",
+        hide = true,
+        help = "Not implemented: use daemon JSON-RPC instead"
+    )]
     pub dbus: bool,
 
-    #[clap(long = "dbus-system", help = "Make request via system dbus")]
+    #[clap(long = "dbus-system", hide = true)]
     pub dbus_system: bool,
 
-    #[clap(
-        long = "bus-name",
-        help = "Connect to another D-Bus bus name than the default"
-    )]
+    #[clap(long = "bus-name", hide = true)]
     pub bus_name: Option<String>,
 
-    #[clap(long = "disable-send-log", help = "Disable message send log")]
+    #[clap(long = "disable-send-log", hide = true)]
     pub disable_send_log: bool,
+
+    #[clap(
+        long = "attachment-dir",
+        help = "Restrict file attachments to this directory (daemon operators: also honors SIGNAL_CLI_ATTACHMENT_DIR)"
+    )]
+    pub attachment_dir: Option<PathBuf>,
 
     #[clap(subcommand)]
     pub command: Command,
@@ -110,6 +120,12 @@ pub enum Command {
             help = "Register even if account is already registered"
         )]
         reregister: bool,
+
+        #[clap(
+            long = "verification-code",
+            help = "SMS/voice verification code (non-interactive; otherwise prompted)"
+        )]
+        verification_code: Option<String>,
     },
 
     #[clap(
@@ -258,6 +274,32 @@ pub enum Command {
     RemoveDevice {
         #[clap(short = 'd', long = "device-id", help = "Device to remove")]
         device_id: i64,
+    },
+
+    #[clap(
+        name = "whoami",
+        about = "Show registered account metadata from the server"
+    )]
+    Whoami,
+
+    #[clap(
+        name = "clearSessions",
+        about = "Clear Signal sessions for a recipient"
+    )]
+    ClearSessions {
+        #[clap(help = "Recipient UUID or phone number")]
+        recipient: String,
+    },
+
+    #[clap(
+        name = "sendSessionReset",
+        about = "Send a session reset to a recipient"
+    )]
+    SendSessionReset {
+        #[clap(help = "Recipient UUID or phone number")]
+        recipient: String,
+        #[clap(long = "timestamp", help = "Optional message timestamp for the reset")]
+        timestamp: Option<u64>,
     },
 
     #[clap(
@@ -883,6 +925,12 @@ pub enum Command {
         uri: String,
     },
 
+    #[clap(name = "removeStickerPack", about = "Remove an installed sticker pack")]
+    RemoveStickerPack {
+        #[clap(long = "uri")]
+        uri: String,
+    },
+
     #[clap(name = "getAttachment", about = "Get raw attachment data")]
     GetAttachment {
         #[clap(long = "id")]
@@ -939,10 +987,10 @@ pub enum Command {
         )]
         http: Option<String>,
 
-        #[clap(long = "dbus")]
+        #[clap(long = "dbus", hide = true)]
         dbus: bool,
 
-        #[clap(long = "dbus-system")]
+        #[clap(long = "dbus-system", hide = true)]
         dbus_system: bool,
 
         #[clap(long = "bus-name")]
@@ -1025,6 +1073,9 @@ impl Command {
             Command::ListAccounts => "listAccounts",
             Command::ListDevices => "listDevices",
             Command::RemoveDevice { .. } => "removeDevice",
+            Command::Whoami => "whoami",
+            Command::ClearSessions { .. } => "clearSessions",
+            Command::SendSessionReset { .. } => "sendSessionReset",
             Command::GetUserStatus { .. } => "getUserStatus",
             Command::SendAdminDelete { .. } => "sendAdminDelete",
             Command::Send { .. } => "send",
@@ -1058,6 +1109,7 @@ impl Command {
             Command::UploadStickerPack { .. } => "uploadStickerPack",
             Command::ListStickerPacks => "listStickerPacks",
             Command::AddStickerPack { .. } => "addStickerPack",
+            Command::RemoveStickerPack { .. } => "removeStickerPack",
             Command::GetAttachment { .. } => "getAttachment",
             Command::GetAvatar { .. } => "getAvatar",
             Command::GetSticker { .. } => "getSticker",
@@ -1071,7 +1123,59 @@ impl Command {
     pub fn requires_account(&self) -> bool {
         !matches!(
             self,
-            Command::Version | Command::ListAccounts | Command::Link { .. }
+            Command::Version
+                | Command::ListAccounts
+                | Command::Link { .. }
+                | Command::Daemon { .. }
+                | Command::JsonRpc { .. }
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// Guard against `Command` / `name()` drift: key subcommands must keep
+    /// stable protocol names (full source-parse is brittle across clap styles).
+    #[test]
+    fn command_names_cover_all_clap_subcommands() {
+        let src = include_str!("cli.rs");
+        for name in [
+            "register",
+            "link",
+            "send",
+            "receive",
+            "listGroups",
+            "listContacts",
+            "whoami",
+            "daemon",
+            "jsonRpc",
+            "submitRateLimitChallenge",
+            "version",
+            "sendPollCreate",
+            "updateGroup",
+        ] {
+            assert!(
+                src.contains(&format!("=> \"{name}\"")),
+                "Command::name() missing arm for `{name}`"
+            );
+        }
+    }
+
+    #[test]
+    fn accountless_commands_are_version_list_link_daemon_jsonrpc() {
+        assert!(!Command::Version.requires_account());
+        assert!(!Command::ListAccounts.requires_account());
+        assert!(!Command::Link { name: None }.requires_account());
+        assert!(
+            Command::Register {
+                voice: false,
+                captcha: None,
+                reregister: false,
+                verification_code: None,
+            }
+            .requires_account()
+        );
+        assert!(Command::SendSyncRequest.requires_account());
     }
 }

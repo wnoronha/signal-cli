@@ -7,7 +7,7 @@ Thank you for your interest in contributing to the Rust port of `signal-cli`!
 The project is currently in early development, and there are many areas where you can help:
 
 1.  **Bug Reports**: If you find a bug, please open an issue with detailed reproduction steps and logs (run with `-v`).
-2.  **Feature Requests**: If you need a feature that is not yet implemented, please check the "Pending / Stubbed Features" section in the README.
+2.  **Feature Requests**: If you need a feature that is not yet implemented, see [docs/command-status.adoc](docs/command-status.adoc).
 3.  **Code Contributions**:
     *   Implementing stubbed features: Many features are currently stubbed because the underlying `presage` library hasn't exposed a high-level API for them yet. If you are familiar with the Signal protocol or `presage` internals, your help here would be invaluable.
     *   Improving documentation: Man pages, README, and code comments.
@@ -15,10 +15,10 @@ The project is currently in early development, and there are many areas where yo
 
 ## Development Setup
 
-1.  **Prerequisites**:
+1.  **Prerequisites** (match `README.md` Requirements):
     *   Rust toolchain (latest stable)
-    *   `sqlite3` development headers
-    *   `asciidoctor` (for man page generation)
+    *   `libsqlite3-dev`, `pkg-config`, `protobuf-compiler`, `cmake`, `libssl-dev` (Linux) or Homebrew equivalents on macOS
+    *   `asciidoctor` (optional, for man page generation via `make install`)
 
 2.  **Building**:
     ```bash

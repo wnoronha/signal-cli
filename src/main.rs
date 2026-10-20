@@ -1,5 +1,6 @@
 pub mod cli;
 pub mod commands;
+pub mod compat;
 pub mod errors;
 pub mod output;
 pub mod rpc;
@@ -11,13 +12,15 @@ use tracing::{error, info};
 #[tokio::main]
 async fn main() {
     let args = cli::Cli::parse();
-    utils::init_tracing(args.verbose);
+    utils::init_tracing(args.verbose, args.log_file.clone(), args.scrub_log);
 
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
             if let Err(err) = run(args).await {
-                error!("{:?}", err);
+                if err.downcast_ref::<output::ErrorReported>().is_none() {
+                    error!("{err:#}");
+                }
                 std::process::exit(1);
             }
         })
@@ -29,13 +32,26 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
     let config_dir = utils::get_config_dir(args.config.clone())?;
 
     // Ensure config directory exists
-    std::fs::create_dir_all(&config_dir)?;
+    tokio::fs::create_dir_all(&config_dir).await?;
 
     // 2. Identify available accounts
     let mut local_accounts = utils::find_local_accounts(&config_dir)?;
 
     // 3. Resolve active account (if required by subcommand)
-    let active_account = if !args.command.requires_account() {
+    // NOTE: Daemon/JsonRpc must come first: they accept `-a` as the default
+    // account but also run accountless (multi-account mode), so
+    // `requires_account()` is false for them.
+    let active_account = if matches!(
+        args.command,
+        crate::cli::Command::Daemon { .. } | crate::cli::Command::JsonRpc { .. }
+    ) {
+        if let Some(ref account) = args.account {
+            utils::validate_account_name(account).map_err(|e| anyhow::anyhow!(e))?;
+            Some(account.clone())
+        } else {
+            None
+        }
+    } else if !args.command.requires_account() {
         // Command does not require an active account to start
         None
     } else if args.command.name() == "register" {
@@ -43,14 +59,10 @@ async fn run(args: cli::Cli) -> anyhow::Result<()> {
         let account = args.account.clone().ok_or_else(|| {
             anyhow::anyhow!("The register command requires the --account / -a parameter to specify your phone number.")
         })?;
-        if !account.starts_with('+') {
-            anyhow::bail!("Account phone number must start with '+' (E.164 format).");
-        }
+        utils::validate_account_name(&account).map_err(|e| anyhow::anyhow!(e))?;
         Some(account)
     } else if let Some(ref account) = args.account {
-        if !account.starts_with('+') {
-            anyhow::bail!("Account phone number must start with '+' (E.164 format).");
-        }
+        utils::validate_account_name(account).map_err(|e| anyhow::anyhow!(e))?;
         Some(account.clone())
     } else {
         // Check local accounts count

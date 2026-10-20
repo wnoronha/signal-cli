@@ -198,6 +198,13 @@ pub struct AddStickerPackParams {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SendSessionResetParams {
+    pub recipient: String,
+    pub timestamp: Option<u64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GetStickerParams {
     pub pack_id: String,
     pub sticker_id: u32,
@@ -223,4 +230,53 @@ pub struct GetAvatarParams {
     pub contact: Option<String>,
     pub profile: Option<String>,
     pub group_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FinishLinkParams {
+    pub device_link_uri: String,
+    pub device_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AddDeviceParams {
+    pub device_link_uri: Option<String>,
+    pub uri: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_params_recipient_scalar_or_vec() {
+        let scalar: SendParams = serde_json::from_value(serde_json::json!({
+            "recipient": "+15551234567",
+            "message": "hi"
+        }))
+        .unwrap();
+        assert_eq!(scalar.recipient, Some(vec!["+15551234567".to_string()]));
+
+        let vec_form: SendParams = serde_json::from_value(serde_json::json!({
+            "recipient": ["+1", "+2"],
+            "message": "hi"
+        }))
+        .unwrap();
+        assert_eq!(vec_form.recipient.unwrap().len(), 2);
+    }
+
+    #[test]
+    fn json_rpc_request_round_trip() {
+        let req = JsonRpcRequest {
+            jsonrpc: "2.0".to_string(),
+            method: "listGroups".to_string(),
+            params: None,
+            id: Some(serde_json::json!("id-1")),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        let back: JsonRpcRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.method, "listGroups");
+    }
 }
