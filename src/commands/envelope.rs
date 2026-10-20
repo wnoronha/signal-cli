@@ -19,6 +19,18 @@ pub async fn build_receive_envelope<S: Store>(
     let source_uuid = content.metadata.sender.service_id_string();
     let timestamp = saturating_millis(content.metadata.server_timestamp.timestamp_millis());
 
+    // Resolve the sender's E.164 phone number from the local contact store
+    // when known (Java signal-cli: `source` = number if known else UUID,
+    // `sourceNumber` = number if known).
+    let source_number: Option<String> = manager
+        .store()
+        .contact_by_id(&content.metadata.sender)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|c| c.phone_number.map(|p| p.to_string()));
+    let source = source_number.clone().or_else(|| Some(source_uuid.clone()));
+
     let (thread_title, group_id) = match Thread::try_from(content) {
         Ok(thread) => {
             let title = manager.thread_title(&thread).await.ok();
@@ -32,8 +44,8 @@ pub async fn build_receive_envelope<S: Store>(
     };
 
     ReceiveEnvelope {
-        source: None,
-        source_number: None,
+        source,
+        source_number,
         source_uuid: Some(source_uuid),
         source_name: thread_title.clone(),
         thread_title,
