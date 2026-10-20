@@ -192,9 +192,12 @@ fn spawn_receive_loop(
         // Clone under a short lock, then run the network stream on the clone
         // so RPC handlers are not blocked by `receive_messages().await`.
         let mut receive_manager = manager_handle.lock().await.clone();
-        let messages_stream = receive_manager.receive_messages().await.ok();
-        let Some(messages) = messages_stream else {
-            return;
+        let messages = match receive_manager.receive_messages().await {
+            Ok(s) => s,
+            Err(e) => {
+                warn!(%account, error = %e, "receive loop: failed to start message stream");
+                return;
+            }
         };
         pin_mut!(messages);
         while let Some(received_res) = messages.next().await {

@@ -204,8 +204,12 @@ impl DaemonContext {
             let mut receive_manager = handle.lock().await.clone();
             let account = phone_number.clone();
             tokio::task::spawn_local(async move {
-                let Ok(messages) = receive_manager.receive_messages().await else {
-                    return;
+                let messages = match receive_manager.receive_messages().await {
+                    Ok(s) => s,
+                    Err(e) => {
+                        warn!(%account, error = %e, "receive loop: failed to start message stream");
+                        return;
+                    }
                 };
                 pin_mut!(messages);
                 while let Some(res) = messages.next().await {
