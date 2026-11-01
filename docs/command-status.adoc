@@ -29,8 +29,8 @@ Notes use these labels:
 | `unregister` | Partial | `unlink_self`, `unlink_secondary` | CLI: secondary unlinks self; primary unlinks all secondaries; `--delete-account` stub
 | `whoami` | Implemented | `whoami` | CLI + JSON-RPC
 | `clearSessions`, `sendSessionReset` | Implemented | `clear_sessions`, `send_session_reset` | CLI + JSON-RPC
-| `setPin`, `removePin` | Stub | none | CLI: non-zero
-| `updateAccount`, `updateConfiguration`, change number | Stub | none | CLI: non-zero
+| `setPin`, `removePin` | Stub | none (private `AccountManager` fields) | CLI: non-zero; needs a presage `registration_lock` wrapper. No GET-attributes endpoint exists, so read-modify-write is unsafe
+| `updateAccount`, `updateConfiguration`, change number | Stub | `set_account_attributes` exists but unwrapped | CLI: non-zero; needs a presage wrapper. Change-number flow is absent from libsignal
 | `submitRateLimitChallenge` | Implemented | `submit_recaptcha_challenge` | |
 |===
 
@@ -39,10 +39,13 @@ Notes use these labels:
 |===
 | Command | Status | Presage | Notes
 
-| `send`, `receive` | Implemented | `send_message*`, `receive_messages` | Compat: many flags ignored (see link:daemon-rust-port.adoc#[])
-| `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete` | Implemented | message content via `send_message` | |
+| `send`, `receive` | Implemented | `send_message*`, `receive_messages` | CLI: mentions, text styles, quotes, stickers, explicit previews, view-once, story replies, `--username`. `--end-session`, `--no-urgent`, and `--edit-timestamp` have no wire path. The CLI warns and sends normally
+| `sendReaction`, `sendReceipt`, `sendTyping`, `remoteDelete`, `sendAdminDelete` | Implemented | message content via `send_message` | CLI + JSON-RPC (admin delete is group-only)
 | `getAttachment`, `getAvatar` | Implemented | `get_attachment`, profile/group avatar | |
-| Polls, pin messages, payments | Stub | none | JSON-RPC: `-32005`
+| `sendPollCreate`, `sendPollVote`, `sendPollTerminate` | Implemented | `DataMessage` poll content via `send_message` | CLI + JSON-RPC; options validated (2–10, 1–100 chars)
+| `sendPinMessage`, `sendUnpinMessage` | Implemented | `DataMessage` pin content via `send_message` | CLI + JSON-RPC; `--pin-duration -1` (default) pins forever
+| `sendPaymentNotification` | Implemented | `DataMessage` payment notification via `send_message` | CLI + JSON-RPC; `--receipt` is base64 MobileCoin receipt
+| `sendMessageRequestResponse` | Stub | none (sync-message send path) | CLI: non-zero; needs presage sync-message send API
 |===
 
 == Groups and contacts
@@ -51,11 +54,11 @@ Notes use these labels:
 | Command | Status | Presage | Notes
 
 | `listGroups` | Implemented | store + group sync | JSON-RPC: detailed array; member IDs are service IDs
-| `joinGroup`, `updateGroup`, `quitGroup` | Stub | none (public API) | JSON-RPC: `-32005`; CLI: non-zero
+| `joinGroup`, `updateGroup`, `quitGroup` | Stub | none (GroupsV2 write protocol) | JSON-RPC: `-32005`; CLI: non-zero; libsignal `GroupsManager` is fetch-only
 | `listContacts`, `updateContact`, `updateProfile` | Implemented / partial | store / `update_profile`, `retrieve_profile_by_uuid` | CLI: detailed contacts include profile when key known
 | `getUserStatus` | Implemented / partial | CDS + `retrieve_profile_by_uuid` | Profile fields when contact key known
-| `removeContact`, `block`, `unblock` | Stub | none | CLI: non-zero
-| `listIdentities`, `trust` | Stub | `OnNewIdentity` on store only | CLI: non-zero
+| `removeContact`, `block`, `unblock` | Stub | none (presage logs "not implemented" for blocked sync) | CLI: non-zero; needs presage storage-service write API
+| `listIdentities`, `trust` | Stub | `OnNewIdentity` on store only | CLI: non-zero; needs presage identity-enumeration/trust API (protocol-store access)
 | `sendSyncRequest` | Implemented | `request_contacts` + receive | |
 |===
 
@@ -64,7 +67,7 @@ Notes use these labels:
 |===
 | Command | Status | Presage | Notes
 
-| `listDevices`, `removeDevice`, `addDevice` | Implemented / partial | `devices`, `unlink_secondary`, `link_secondary` | |
+| `listDevices`, `removeDevice`, `addDevice`, `updateDevice` | Implemented / partial | `devices`, `unlink_secondary`, `link_secondary`, `update_device_name` (presage aeaedf99) | CLI-only rename; only this device can be renamed (server rule) |
 | `listStickerPacks`, `addStickerPack`, `getSticker` | Implemented | sticker store + install | CLI: URI validation on add
 | `removeStickerPack` | Implemented | `remove_sticker_pack` | CLI + JSON-RPC; same URI form as add
 | `uploadStickerPack` | Stub | none | CLI: non-zero
