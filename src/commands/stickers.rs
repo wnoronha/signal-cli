@@ -1,15 +1,14 @@
 use anyhow::anyhow;
 use base64::prelude::*;
-use presage::Manager;
-use presage::manager::Registered;
-use presage::store::Store;
 use std::path::Path;
 
 use crate::output::{MediaData, StickerInfo, StickerPackInfo, StickerPackList, SuccessResult};
 use crate::utils::open_sqlite_store;
 
-use super::load_registered_and_receive;
+use super::load_registered;
 use super::stubs::core_upload_sticker_pack;
+use crate::app::RegisteredManager;
+use presage::store::ContentsStore;
 
 pub(crate) async fn run_list_sticker_packs(
     config_dir: &Path,
@@ -17,13 +16,13 @@ pub(crate) async fn run_list_sticker_packs(
 ) -> anyhow::Result<StickerPackList> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_list_sticker_packs(&mut manager).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_list_sticker_packs<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_list_sticker_packs(
+    manager: &mut RegisteredManager,
 ) -> anyhow::Result<StickerPackList> {
     let mut packs = Vec::new();
     for pack in manager.store().sticker_packs().await?.flatten() {
@@ -56,13 +55,13 @@ pub(crate) async fn run_add_sticker_pack(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_add_sticker_pack(&mut manager, pack_id, pack_key).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_add_sticker_pack<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_add_sticker_pack(
+    manager: &mut RegisteredManager,
     pack_id_str: String,
     pack_key_str: String,
 ) -> anyhow::Result<SuccessResult> {
@@ -92,13 +91,13 @@ pub(crate) async fn run_remove_sticker_pack(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_remove_sticker_pack(&mut manager, pack_id, pack_key).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_remove_sticker_pack<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_remove_sticker_pack(
+    manager: &mut RegisteredManager,
     pack_id_str: String,
     pack_key_str: String,
 ) -> anyhow::Result<SuccessResult> {
@@ -127,13 +126,13 @@ pub(crate) async fn run_get_sticker(
 ) -> anyhow::Result<MediaData> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_get_sticker(&mut manager, pack_id, sticker_id).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_get_sticker<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_get_sticker(
+    manager: &mut RegisteredManager,
     pack_id_str: String,
     sticker_id: u32,
 ) -> anyhow::Result<MediaData> {

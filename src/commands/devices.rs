@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use presage::Manager;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
-use presage::manager::Registered;
-use presage::store::Store;
 use std::str::FromStr;
 
 use crate::output::{DeviceInfo, DeviceList, SuccessResult, UserStatus, WhoAmIInfo};
@@ -13,7 +10,9 @@ use crate::utils::{
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
 
-use super::{load_registered, load_registered_and_receive};
+use super::load_registered;
+use crate::app::RegisteredManager;
+use presage::store::ContentsStore;
 
 pub(crate) async fn run_add_device(
     config_dir: &Path,
@@ -22,15 +21,15 @@ pub(crate) async fn run_add_device(
 ) -> anyhow::Result<()> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_add_device(&mut manager, uri).await?;
     println!("Added new secondary device.");
     Ok(())
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_add_device<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_add_device(
+    manager: &mut RegisteredManager,
     uri: String,
 ) -> anyhow::Result<SuccessResult> {
     let url = url::Url::parse(&uri)?;
@@ -47,13 +46,13 @@ pub(crate) async fn run_list_devices(
 ) -> anyhow::Result<DeviceList> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_list_devices(&mut manager).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_list_devices<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_list_devices(
+    manager: &mut RegisteredManager,
 ) -> anyhow::Result<DeviceList> {
     let devices = manager.devices().await?;
     let current_device_id = manager.device_id();
@@ -81,7 +80,7 @@ pub(crate) async fn run_remove_device(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_remove_device(
         &mut manager,
         u32_from_i64_nonnegative(device_id, "device_id")?,
@@ -90,8 +89,8 @@ pub(crate) async fn run_remove_device(
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_remove_device<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_remove_device(
+    manager: &mut RegisteredManager,
     device_id: u32,
 ) -> anyhow::Result<SuccessResult> {
     manager.unlink_secondary(device_id).await?;
@@ -109,13 +108,13 @@ pub(crate) async fn run_get_user_status(
 ) -> anyhow::Result<Vec<UserStatus>> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_get_user_status(&mut manager, recipients, usernames).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_get_user_status<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_get_user_status(
+    manager: &mut RegisteredManager,
     recipients: Vec<String>,
     usernames: Vec<String>,
 ) -> anyhow::Result<Vec<UserStatus>> {
@@ -198,9 +197,7 @@ pub(crate) async fn run_whoami(
     core_whoami(&manager).await
 }
 
-pub(crate) async fn core_whoami<S: Store + Send + 'static>(
-    manager: &Manager<S, Registered>,
-) -> anyhow::Result<WhoAmIInfo> {
+pub(crate) async fn core_whoami(manager: &RegisteredManager) -> anyhow::Result<WhoAmIInfo> {
     let who = manager.whoami().await?;
     Ok(WhoAmIInfo {
         number: who.number.to_string(),
@@ -221,8 +218,8 @@ pub(crate) async fn run_clear_sessions(
     core_clear_sessions(&manager, recipient).await
 }
 
-pub(crate) async fn core_clear_sessions<S: Store + Send + 'static>(
-    manager: &Manager<S, Registered>,
+pub(crate) async fn core_clear_sessions(
+    manager: &RegisteredManager,
     recipient: String,
 ) -> anyhow::Result<SuccessResult> {
     let mut resolver = manager.clone();
@@ -246,8 +243,8 @@ pub(crate) async fn run_send_session_reset(
     core_send_session_reset(&mut manager, recipient, timestamp).await
 }
 
-pub(crate) async fn core_send_session_reset<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_send_session_reset(
+    manager: &mut RegisteredManager,
     recipient: String,
     timestamp: Option<u64>,
 ) -> anyhow::Result<SuccessResult> {
@@ -264,10 +261,7 @@ pub(crate) async fn core_send_session_reset<S: Store + Send + 'static>(
     })
 }
 
-async fn enrich_user_status<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-    status: &mut UserStatus,
-) {
+async fn enrich_user_status(manager: &mut RegisteredManager, status: &mut UserStatus) {
     let Some(ref aci_str) = status.aci else {
         return;
     };
@@ -294,4 +288,27 @@ async fn enrich_user_status<S: Store + Send + 'static>(
     }
     status.about = profile.about;
     status.about_emoji = profile.about_emoji;
+}
+
+pub(crate) async fn run_update_device(
+    config_dir: &Path,
+    active_account: Option<String>,
+    device_id: i64,
+    device_name: String,
+) -> anyhow::Result<SuccessResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    let current = u32::from(manager.device_id());
+    let target = u32_from_i64_nonnegative(device_id, "device_id")?;
+    if target != current {
+        anyhow::bail!(
+            "Only this device ({current}) can be renamed; device {target} is a linked device."
+        );
+    }
+    manager.update_device_name(&device_name).await?;
+    Ok(SuccessResult {
+        success: true,
+        message: format!("Updated device name to: {device_name}"),
+    })
 }

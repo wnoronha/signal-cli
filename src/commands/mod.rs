@@ -12,7 +12,7 @@ mod stubs;
 
 pub(crate) use envelope::build_receive_envelope;
 pub(crate) use group_id::parse_group_id;
-pub(crate) use runtime::{load_registered, load_registered_and_receive};
+pub(crate) use runtime::load_registered;
 pub(crate) use stubs::*;
 
 mod account;
@@ -146,40 +146,74 @@ pub async fn execute_command(
             note_to_self,
             notify_self: _,
             group_id,
-            username: _,
+            username,
             message,
             message_from_stdin,
             attachment,
-            view_once: _,
-            sticker: _,
-            mention: _,
-            text_style: _,
-            quote_timestamp: _,
-            quote_author: _,
-            quote_message: _,
-            quote_mention: _,
-            quote_text_style: _,
-            quote_attachment: _,
-            preview_url: _,
-            preview_title: _,
-            preview_description: _,
-            preview_image: _,
-            story_timestamp: _,
-            story_author: _,
-            end_session: _,
-            edit_timestamp: _,
-            no_urgent: _,
+            view_once,
+            sticker,
+            mention,
+            text_style,
+            quote_timestamp,
+            quote_author,
+            quote_message,
+            quote_mention,
+            quote_text_style,
+            quote_attachment,
+            preview_url,
+            preview_title,
+            preview_description,
+            preview_image,
+            story_timestamp,
+            story_author,
+            end_session,
+            edit_timestamp,
+            no_urgent,
         } => {
+            if end_session {
+                eprintln!(
+                    "warning: --end-session has no wire representation in the current Signal protocol (END_SESSION flag removed); message is sent normally"
+                );
+            }
+            if no_urgent {
+                eprintln!("warning: --no-urgent is not sent: urgency is not exposed by presage");
+            }
+            if edit_timestamp.is_some() {
+                eprintln!(
+                    "warning: --edit-timestamp is not sent: edits travel as sync EditMessage, which presage cannot emit"
+                );
+            }
             let attachment_dir = args.attachment_dir.clone();
-            run_send(
+            run_send_full(
                 &config_dir,
                 active_account,
-                note_to_self,
-                recipient,
-                group_id,
-                message,
+                SendArgs {
+                    note_to_self,
+                    recipient,
+                    username,
+                    group_id,
+                    body_text: message,
+                    attachment,
+                    attachment_dir: None,
+                    view_once,
+                    sticker,
+                    mention,
+                    text_style,
+                    quote_timestamp,
+                    quote_author,
+                    quote_message,
+                    quote_mention,
+                    quote_text_style,
+                    quote_attachment,
+                    preview_url,
+                    preview_title,
+                    preview_description,
+                    preview_image,
+                    story_timestamp,
+                    story_author,
+                    edit_timestamp,
+                },
                 message_from_stdin,
-                attachment,
                 attachment_dir,
             )
             .await?
@@ -403,15 +437,19 @@ pub async fn execute_command(
         crate::cli::Command::SendPollCreate {
             recipient,
             group_id,
+            username,
+            note_to_self,
+            notify_self: _,
             question,
             option,
             no_multi,
-            ..
         } => {
-            run_send_poll_create(
+            run_send_poll_create_full(
                 &config_dir,
                 active_account,
                 recipient,
+                username,
+                note_to_self,
                 group_id,
                 question,
                 option,
@@ -425,20 +463,29 @@ pub async fn execute_command(
         crate::cli::Command::SendPollVote {
             recipient,
             group_id,
+            username,
+            note_to_self,
+            notify_self: _,
+            poll_author,
             poll_timestamp,
             option,
-            ..
+            vote_count,
         } => {
-            run_send_poll_vote(
+            let choices = option
+                .into_iter()
+                .map(|o| crate::utils::u32_from_i64_nonnegative(o, "option"))
+                .collect::<Result<Vec<_>, _>>()?;
+            run_send_poll_vote_full(
                 &config_dir,
                 active_account,
                 recipient,
+                username,
+                note_to_self,
                 group_id,
+                poll_author,
                 poll_timestamp,
-                option
-                    .into_iter()
-                    .map(|o| crate::utils::i32_from_i64_checked(o, "option"))
-                    .collect::<Result<Vec<_>, _>>()?,
+                choices,
+                crate::utils::u32_from_i64_nonnegative(vote_count, "vote_count")?,
             )
             .await?
             .render(args.output);
@@ -448,13 +495,17 @@ pub async fn execute_command(
         crate::cli::Command::SendPollTerminate {
             recipient,
             group_id,
+            username,
+            note_to_self,
+            notify_self: _,
             poll_timestamp,
-            ..
         } => {
-            run_send_poll_terminate(
+            run_send_poll_terminate_full(
                 &config_dir,
                 active_account,
                 recipient,
+                username,
+                note_to_self,
                 group_id,
                 poll_timestamp,
             )
@@ -462,10 +513,95 @@ pub async fn execute_command(
             .render(args.output);
             Ok(())
         }
-        crate::cli::Command::SendMessageRequestResponse { .. }
-        | crate::cli::Command::SendPaymentNotification { .. }
-        | crate::cli::Command::SendPinMessage { .. }
-        | crate::cli::Command::SendUnpinMessage { .. } => not_implemented(args.command.name()),
+
+        crate::cli::Command::SendPinMessage {
+            recipient,
+            group_id,
+            username,
+            note_to_self,
+            notify_self: _,
+            pin_duration,
+            target_author,
+            target_timestamp,
+        } => {
+            run_send_pin_message(
+                &config_dir,
+                active_account,
+                recipient,
+                username,
+                note_to_self,
+                group_id,
+                pin_duration,
+                target_author,
+                target_timestamp,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendUnpinMessage {
+            recipient,
+            group_id,
+            username,
+            note_to_self,
+            notify_self: _,
+            target_author,
+            target_timestamp,
+        } => {
+            run_send_unpin_message(
+                &config_dir,
+                active_account,
+                recipient,
+                username,
+                note_to_self,
+                group_id,
+                target_author,
+                target_timestamp,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendPaymentNotification {
+            recipient,
+            receipt,
+            note,
+        } => {
+            run_send_payment_notification(&config_dir, active_account, recipient, receipt, note)
+                .await?
+                .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendAdminDelete {
+            group_id,
+            notify_self: _,
+            target_author,
+            target_timestamp,
+            story,
+        } => {
+            if story {
+                eprintln!(
+                    "warning: --story admin delete targets stories; sent as group admin delete"
+                );
+            }
+            run_send_admin_delete(
+                &config_dir,
+                active_account,
+                group_id,
+                target_author,
+                target_timestamp,
+            )
+            .await?
+            .render(args.output);
+            Ok(())
+        }
+
+        crate::cli::Command::SendMessageRequestResponse { .. } => {
+            not_implemented(args.command.name())
+        }
 
         crate::cli::Command::Unregister { delete_account } => {
             run_unregister(&config_dir, active_account, delete_account)
@@ -638,8 +774,14 @@ pub async fn execute_command(
             Ok(())
         }
 
-        crate::cli::Command::SendAdminDelete { .. } | crate::cli::Command::UpdateDevice { .. } => {
-            not_implemented(args.command.name())
+        crate::cli::Command::UpdateDevice {
+            device_id,
+            device_name,
+        } => {
+            run_update_device(&config_dir, active_account, device_id, device_name)
+                .await?
+                .render(args.output);
+            Ok(())
         }
     };
     if let Err(err) = &result {

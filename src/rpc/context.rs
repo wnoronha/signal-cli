@@ -6,24 +6,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow};
-use futures::{StreamExt, channel::oneshot, pin_mut};
+use futures::channel::oneshot;
 use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
-use presage::manager::Registered;
-use presage::model::messages::Received;
-use presage_store_sqlite::SqliteStore;
 use serde_json::{Value, json};
 use tokio::sync::{Mutex, broadcast};
-use tracing::warn;
 
+pub use crate::app::{ManagerHandle, RegisteredManager};
 use crate::commands::{
-    build_receive_envelope, finalize_link_database, load_registered_and_receive,
-    new_link_temp_db_name, remove_link_db_files,
+    finalize_link_database, load_registered, new_link_temp_db_name, remove_link_db_files,
 };
-use crate::utils::{find_local_accounts, open_or_create_sqlite_store, open_sqlite_store};
-
-pub type RegisteredManager = Manager<SqliteStore, Registered>;
-pub type ManagerHandle = Arc<Mutex<RegisteredManager>>;
+use crate::rpc::notify::spawn_receive_loop;
+use crate::utils::{
+    find_local_accounts, on_new_identity_from_trust_mode, open_or_create_sqlite_store_with_trust,
+    open_sqlite_store_with_trust,
+};
 
 pub fn account_from_params(params: &Option<Value>) -> Option<String> {
     params
@@ -99,17 +96,16 @@ impl DaemonContext {
 
     pub async fn manager_for(&self, account: &str) -> Result<ManagerHandle> {
         crate::utils::validate_account_name(account).map_err(|e| anyhow!(e))?;
-        // Enforce --trust-new-identities on this thread even when the caller
-        // runs on a different Tokio worker (HTTP) than the CLI entry thread.
-        let _guard = crate::utils::push_store_identity(self.trust_mode);
+        // Trust travels as a value, not thread-local state.
+        let trust = on_new_identity_from_trust_mode(self.trust_mode);
         // Avoid holding the map lock across store open / network load.
         if let Some(existing) = self.managers.lock().await.get(account).cloned() {
             return Ok(existing);
         }
-        let store = open_sqlite_store(&self.config_dir, account)
+        let store = open_sqlite_store_with_trust(&self.config_dir, account, trust)
             .await
             .with_context(|| format!("Failed to open account {account}"))?;
-        let manager = load_registered_and_receive(store).await?;
+        let manager = load_registered(store).await?;
         let handle = Arc::new(Mutex::new(manager));
         self.managers
             .lock()
@@ -129,13 +125,16 @@ impl DaemonContext {
             anyhow::bail!("A link session is already in progress; call finishLink first.");
         }
 
-        let _guard = crate::utils::push_store_identity(self.trust_mode);
         let db_name = new_link_temp_db_name();
         remove_link_db_files(&self.config_dir, &db_name).await;
 
-        let store = open_or_create_sqlite_store(&self.config_dir, &db_name)
-            .await
-            .map_err(|e| anyhow!(e))?;
+        let store = open_or_create_sqlite_store_with_trust(
+            &self.config_dir,
+            &db_name,
+            on_new_identity_from_trust_mode(self.trust_mode),
+        )
+        .await
+        .map_err(|e| anyhow!(e))?;
 
         let device_name = device_name.unwrap_or_else(|| "signal-cli-rust".to_string());
         let (uri_tx, uri_rx) = oneshot::channel();
@@ -201,41 +200,7 @@ impl DaemonContext {
         if let Ok(handle) = self.manager_for(&phone_number).await
             && let Some(tx) = self.notifier.lock().await.clone()
         {
-            let mut receive_manager = handle.lock().await.clone();
-            let account = phone_number.clone();
-            tokio::task::spawn_local(async move {
-                let messages = match receive_manager.receive_messages().await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        warn!(%account, error = %e, "receive loop: failed to start message stream");
-                        return;
-                    }
-                };
-                pin_mut!(messages);
-                while let Some(res) = messages.next().await {
-                    if let Received::Content(content) = res {
-                        let envelope = build_receive_envelope(&receive_manager, &content).await;
-                        let mut params = serde_json::Map::new();
-                        params.insert(
-                            "envelope".to_string(),
-                            serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null),
-                        );
-                        params.insert(
-                            "account".to_string(),
-                            serde_json::Value::String(account.clone()),
-                        );
-                        let notification = crate::rpc::models::JsonRpcNotification {
-                            jsonrpc: "2.0".to_string(),
-                            method: "receive".to_string(),
-                            params: Some(serde_json::Value::Object(params)),
-                        };
-                        if let Ok(json) = serde_json::to_string(&notification) {
-                            let _ = tx.send(json);
-                        }
-                    }
-                }
-                warn!(%account, "Message stream ended for account");
-            });
+            spawn_receive_loop(handle, phone_number.clone(), tx);
         }
 
         Ok(json!({ "deviceLinkUri": device_link_uri }))

@@ -6,3 +6,5 @@
 responder.py
 *.log
 *.pid
+.agents/skills/
+.opencode/agents/

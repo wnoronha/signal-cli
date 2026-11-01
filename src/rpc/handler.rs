@@ -1,14 +1,12 @@
 //! JSON-RPC method dispatch. Implemented methods use `commands::core_*`; stubs use `commands::core_*` in `stubs.rs`.
 //! Upstream API reference: `docs/signal-cli-jsonrpc.5.adoc`.
 
+use crate::app::RegisteredManager;
 use crate::commands;
 use crate::errors::SignalError;
 use crate::rpc::context::DaemonContext;
 use crate::rpc::models::*;
 use anyhow::{Result, anyhow};
-use presage::Manager;
-use presage::manager::Registered;
-use presage::store::Store;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
@@ -119,17 +117,13 @@ pub async fn handle_daemon_request(
     let manager_handle = match ctx.manager_for(&account).await {
         Ok(h) => h,
         Err(e) => {
-            let code = if e.downcast_ref::<SignalError>().is_some() {
-                -32001
-            } else {
-                -32603
-            };
-            return json_rpc_error(id, code, e.to_string());
+            let (code, message) = crate::errors::json_rpc_code_for(&e);
+            return json_rpc_error(id, code, message);
         }
     };
 
     let mut manager = manager_handle.lock().await;
-    handle_request(request, &mut *manager).await
+    handle_request(request, &mut manager).await
 }
 
 fn rpc_result_to_response(id: Value, result: Result<Value>) -> JsonRpcResponse {
@@ -141,11 +135,7 @@ fn rpc_result_to_response(id: Value, result: Result<Value>) -> JsonRpcResponse {
             id,
         },
         Err(e) => {
-            let (code, message) = if let Some(signal_err) = e.downcast_ref::<SignalError>() {
-                (signal_err.json_rpc_code(), signal_err.to_string())
-            } else {
-                (-32603, e.to_string())
-            };
+            let (code, message) = crate::errors::json_rpc_code_for(&e);
             json_rpc_error(id, code, message)
         }
     }
@@ -164,9 +154,9 @@ fn json_rpc_error(id: Value, code: i32, message: String) -> JsonRpcResponse {
     }
 }
 
-pub async fn handle_request<S: Store + Send + 'static>(
+pub async fn handle_request(
     request: JsonRpcRequest,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> JsonRpcResponse {
     let id = request.id.unwrap_or(Value::Null);
     let result = match request.method.as_str() {
@@ -196,6 +186,12 @@ pub async fn handle_request<S: Store + Send + 'static>(
         "sendPollCreate" => handle_send_poll_create(request.params, manager).await,
         "sendPollVote" => handle_send_poll_vote(request.params, manager).await,
         "sendPollTerminate" => handle_send_poll_terminate(request.params, manager).await,
+        "sendPinMessage" => handle_send_pin_message(request.params, manager).await,
+        "sendUnpinMessage" => handle_send_unpin_message(request.params, manager).await,
+        "sendPaymentNotification" => {
+            handle_send_payment_notification(request.params, manager).await
+        }
+        "sendAdminDelete" => handle_send_admin_delete(request.params, manager).await,
         "listStickerPacks" => handle_list_sticker_packs(manager).await,
         "addStickerPack" => handle_add_sticker_pack(request.params, manager).await,
         "removeStickerPack" => handle_remove_sticker_pack(request.params, manager).await,
@@ -240,11 +236,7 @@ pub async fn handle_request<S: Store + Send + 'static>(
             id,
         },
         Err(e) => {
-            let (code, message) = if let Some(signal_err) = e.downcast_ref::<SignalError>() {
-                (signal_err.json_rpc_code(), signal_err.to_string())
-            } else {
-                (-32603, format!("{:?}", e))
-            };
+            let (code, message) = crate::errors::json_rpc_code_for(&e);
             JsonRpcResponse {
                 jsonrpc: "2.0".to_string(),
                 result: None,
@@ -259,10 +251,7 @@ pub async fn handle_request<S: Store + Send + 'static>(
     }
 }
 
-async fn handle_send<S: Store + Send + 'static>(
-    params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_send(params: Option<Value>, manager: &mut RegisteredManager) -> Result<Value> {
     let params: SendParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
 
@@ -280,24 +269,20 @@ async fn handle_send<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_receive<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_receive(manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_receive(manager, None).await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_list_groups<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_list_groups(manager: &mut RegisteredManager) -> Result<Value> {
     // Always detailed=true (upstream daemon default differs; documented in daemon-rust-port.adoc).
     let result = commands::core_list_groups(manager, true, Vec::new()).await?;
     Ok(serde_json::to_value(result.groups)?)
 }
 
-async fn handle_update_profile<S: Store + Send + 'static>(
+async fn handle_update_profile(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: UpdateProfileParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -312,9 +297,9 @@ async fn handle_update_profile<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_update_contact<S: Store + Send + 'static>(
+async fn handle_update_contact(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: UpdateContactParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -330,16 +315,14 @@ async fn handle_update_contact<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_list_devices<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_list_devices(manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_list_devices(manager).await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_remove_device<S: Store + Send + 'static>(
+async fn handle_remove_device(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: RemoveDeviceParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -347,9 +330,9 @@ async fn handle_remove_device<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_receipt<S: Store + Send + 'static>(
+async fn handle_send_receipt(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: SendReceiptParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -363,9 +346,9 @@ async fn handle_send_receipt<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_typing<S: Store + Send + 'static>(
+async fn handle_send_typing(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: SendTypingParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -379,9 +362,9 @@ async fn handle_send_typing<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_get_user_status<S: Store + Send + 'static>(
+async fn handle_get_user_status(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: GetUserStatusParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -389,9 +372,9 @@ async fn handle_get_user_status<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_reaction<S: Store + Send + 'static>(
+async fn handle_send_reaction(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: SendReactionParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -409,9 +392,9 @@ async fn handle_send_reaction<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_remote_delete<S: Store + Send + 'static>(
+async fn handle_remote_delete(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: RemoteDeleteParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -425,9 +408,9 @@ async fn handle_remote_delete<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_list_contacts<S: Store + Send + 'static>(
+async fn handle_list_contacts(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: ListContactsParams = if let Some(p) = params {
         serde_json::from_value(p)?
@@ -443,16 +426,14 @@ async fn handle_list_contacts<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result.contacts)?)
 }
 
-async fn handle_whoami<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_whoami(manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_whoami(manager).await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_clear_sessions<S: Store + Send + 'static>(
+async fn handle_clear_sessions(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: RemoveContactParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -460,9 +441,9 @@ async fn handle_clear_sessions<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_session_reset<S: Store + Send + 'static>(
+async fn handle_send_session_reset(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: SendSessionResetParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -471,25 +452,22 @@ async fn handle_send_session_reset<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_list_identities<S: Store + Send + 'static>(
+async fn handle_list_identities(
     _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
+    _manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let result = commands::core_list_identities().await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_trust<S: Store + Send + 'static>(
-    _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_trust(_params: Option<Value>, _manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_trust().await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_remove_contact<S: Store + Send + 'static>(
+async fn handle_remove_contact(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: RemoveContactParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -497,70 +475,172 @@ async fn handle_remove_contact<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_block<S: Store + Send + 'static>(
-    _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_block(_params: Option<Value>, _manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_block().await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_unblock<S: Store + Send + 'static>(
-    _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_unblock(_params: Option<Value>, _manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_unblock().await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_contacts<S: Store + Send + 'static>(
-    _manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_send_contacts(_manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_send_contacts().await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_sync_request<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-) -> Result<Value> {
+async fn handle_send_sync_request(manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_send_sync_request(manager).await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_poll_create<S: Store + Send + 'static>(
-    _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
+async fn handle_send_poll_create(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
-    let result = commands::core_send_poll_create().await?;
+    let params: SendPollCreateParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    if params.options.len() < 2 || params.options.len() > 10 {
+        anyhow::bail!("Poll requires between 2 and 10 options.");
+    }
+    let result = commands::core_send_poll_create(
+        manager,
+        params.recipient,
+        None,
+        false,
+        params.group_id,
+        params.question,
+        params.options,
+        params.multiple_answers.unwrap_or(true),
+    )
+    .await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_poll_vote<S: Store + Send + 'static>(
-    _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
+async fn handle_send_poll_vote(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
-    let result = commands::core_send_poll_vote().await?;
+    let params: SendPollVoteParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_send_poll_vote(
+        manager,
+        params.recipient,
+        None,
+        false,
+        params.group_id,
+        params.target_author,
+        params.target_timestamp,
+        params
+            .choice
+            .into_iter()
+            .map(|c| u32::try_from(c).map_err(|_| anyhow!("choice index must fit in u32, got {c}")))
+            .collect::<Result<Vec<_>, _>>()?,
+        u32::try_from(params.vote_count.unwrap_or(1))
+            .map_err(|_| anyhow!("vote_count must fit in u32"))?,
+    )
+    .await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_send_poll_terminate<S: Store + Send + 'static>(
-    _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
+async fn handle_send_poll_terminate(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
-    let result = commands::core_send_poll_terminate().await?;
+    let params: SendPollTerminateParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_send_poll_terminate(
+        manager,
+        params.recipient,
+        None,
+        false,
+        params.group_id,
+        params.target_timestamp,
+    )
+    .await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_list_sticker_packs<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+async fn handle_send_pin_message(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
+    let params: SendPinMessageParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_send_pin_message(
+        manager,
+        params.recipient,
+        None,
+        false,
+        params.group_id,
+        params.target_author,
+        params.target_timestamp,
+        params.pin_duration,
+    )
+    .await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_send_unpin_message(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
+) -> Result<Value> {
+    let params: SendUnpinMessageParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_send_unpin_message(
+        manager,
+        params.recipient,
+        None,
+        false,
+        params.group_id,
+        params.target_author,
+        params.target_timestamp,
+    )
+    .await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_send_payment_notification(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
+) -> Result<Value> {
+    let params: SendPaymentNotificationParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_send_payment_notification(
+        manager,
+        params.recipient,
+        params.receipt,
+        params.note,
+    )
+    .await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_send_admin_delete(
+    params: Option<Value>,
+    manager: &mut RegisteredManager,
+) -> Result<Value> {
+    let params: SendAdminDeleteParams =
+        serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
+    let result = commands::core_send_admin_delete(
+        manager,
+        params.group_id,
+        params.target_author,
+        params.target_timestamp,
+    )
+    .await?;
+    Ok(serde_json::to_value(result)?)
+}
+
+async fn handle_list_sticker_packs(manager: &mut RegisteredManager) -> Result<Value> {
     let result = commands::core_list_sticker_packs(manager).await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_add_sticker_pack<S: Store + Send + 'static>(
+async fn handle_add_sticker_pack(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: AddStickerPackParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -568,9 +648,9 @@ async fn handle_add_sticker_pack<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_remove_sticker_pack<S: Store + Send + 'static>(
+async fn handle_remove_sticker_pack(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: AddStickerPackParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -579,9 +659,9 @@ async fn handle_remove_sticker_pack<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_get_sticker<S: Store + Send + 'static>(
+async fn handle_get_sticker(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: GetStickerParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -589,17 +669,17 @@ async fn handle_get_sticker<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_upload_sticker_pack<S: Store + Send + 'static>(
+async fn handle_upload_sticker_pack(
     _params: Option<Value>,
-    _manager: &mut Manager<S, Registered>,
+    _manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let result = commands::core_upload_sticker_pack().await?;
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_get_attachment<S: Store + Send + 'static>(
+async fn handle_get_attachment(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: GetAttachmentParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -609,9 +689,9 @@ async fn handle_get_attachment<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_add_device<S: Store + Send + 'static>(
+async fn handle_add_device(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: AddDeviceParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;
@@ -623,9 +703,9 @@ async fn handle_add_device<S: Store + Send + 'static>(
     Ok(serde_json::to_value(result)?)
 }
 
-async fn handle_get_avatar<S: Store + Send + 'static>(
+async fn handle_get_avatar(
     params: Option<Value>,
-    manager: &mut Manager<S, Registered>,
+    manager: &mut RegisteredManager,
 ) -> Result<Value> {
     let params: GetAvatarParams =
         serde_json::from_value(params.ok_or_else(|| anyhow!("Missing params"))?)?;

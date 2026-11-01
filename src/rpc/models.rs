@@ -171,8 +171,10 @@ pub struct SendPollCreateParams {
 pub struct SendPollVoteParams {
     pub recipient: Vec<String>,
     pub group_id: Option<String>,
+    pub target_author: String,
     pub target_timestamp: i64,
     pub choice: Vec<i32>,
+    pub vote_count: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -180,6 +182,41 @@ pub struct SendPollVoteParams {
 pub struct SendPollTerminateParams {
     pub recipient: Vec<String>,
     pub group_id: Option<String>,
+    pub target_timestamp: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendPinMessageParams {
+    pub recipient: Vec<String>,
+    pub group_id: Option<String>,
+    pub target_author: String,
+    pub target_timestamp: i64,
+    pub pin_duration: Option<i64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendUnpinMessageParams {
+    pub recipient: Vec<String>,
+    pub group_id: Option<String>,
+    pub target_author: String,
+    pub target_timestamp: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendPaymentNotificationParams {
+    pub recipient: String,
+    pub receipt: String,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SendAdminDeleteParams {
+    pub group_id: String,
+    pub target_author: String,
     pub target_timestamp: i64,
 }
 

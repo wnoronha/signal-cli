@@ -48,3 +48,13 @@ impl SignalError {
         }
     }
 }
+
+/// Single error-to-JSON-RPC mapping used by both CLI (`output`) and daemon
+/// (`rpc::handler`). Previously three copies diverged on `-32001`/`-32603`.
+pub fn json_rpc_code_for(err: &anyhow::Error) -> (i32, String) {
+    if let Some(signal_err) = err.downcast_ref::<SignalError>() {
+        (signal_err.json_rpc_code(), signal_err.to_string())
+    } else {
+        (-32603, err.to_string())
+    }
+}

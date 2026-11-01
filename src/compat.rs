@@ -138,23 +138,6 @@ pub fn warn_unimplemented_cli_flags(cli: &Cli) {
         ),
         Command::Send {
             notify_self,
-            username,
-            view_once,
-            sticker,
-            mention,
-            text_style,
-            quote_timestamp,
-            quote_author,
-            quote_message,
-            quote_mention,
-            quote_text_style,
-            quote_attachment,
-            preview_url,
-            preview_title,
-            preview_description,
-            preview_image,
-            story_timestamp,
-            story_author,
             end_session,
             edit_timestamp,
             no_urgent,
@@ -164,62 +147,11 @@ pub fn warn_unimplemented_cli_flags(cli: &Cli) {
             if *notify_self {
                 names.push("--notify-self");
             }
-            if username.is_some() {
-                names.push("--username");
-            }
-            if *view_once {
-                names.push("--view-once");
-            }
-            if sticker.is_some() {
-                names.push("--sticker");
-            }
-            if !mention.is_empty() {
-                names.push("--mention");
-            }
-            if !text_style.is_empty() {
-                names.push("--text-style");
-            }
-            if quote_timestamp.is_some() {
-                names.push("--quote-timestamp");
-            }
-            if quote_author.is_some() {
-                names.push("--quote-author");
-            }
-            if quote_message.is_some() {
-                names.push("--quote-message");
-            }
-            if !quote_mention.is_empty() {
-                names.push("--quote-mention");
-            }
-            if !quote_text_style.is_empty() {
-                names.push("--quote-text-style");
-            }
-            if !quote_attachment.is_empty() {
-                names.push("--quote-attachment");
-            }
-            if preview_url.is_some() {
-                names.push("--preview-url");
-            }
-            if preview_title.is_some() {
-                names.push("--preview-title");
-            }
-            if preview_description.is_some() {
-                names.push("--preview-description");
-            }
-            if preview_image.is_some() {
-                names.push("--preview-image");
-            }
-            if story_timestamp.is_some() {
-                names.push("--story-timestamp");
-            }
-            if story_author.is_some() {
-                names.push("--story-author");
-            }
             if *end_session {
-                names.push("--end-session");
+                names.push("--end-session (no wire representation; sent normally)");
             }
             if edit_timestamp.is_some() {
-                names.push("--edit-timestamp");
+                names.push("--edit-timestamp (sync EditMessage not emitted)");
             }
             if *no_urgent {
                 names.push("--no-urgent");

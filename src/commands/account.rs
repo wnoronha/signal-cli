@@ -6,14 +6,14 @@ use std::str::FromStr;
 use presage::Manager;
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
-use presage::manager::{Registered, RegistrationOptions, RegistrationType};
-use presage::store::Store;
+use presage::manager::{RegistrationOptions, RegistrationType};
 
 use crate::errors::SignalError;
 use crate::output::{AccountList, SuccessResult};
 use crate::utils::{find_local_accounts, open_or_create_sqlite_store, open_sqlite_store};
 
 use super::load_registered;
+use crate::app::RegisteredManager;
 
 pub(crate) async fn remove_link_db_files(config_dir: &Path, db_name: &str) {
     let _ = tokio::fs::remove_file(config_dir.join(format!("{db_name}.db"))).await;
@@ -283,8 +283,8 @@ pub(crate) async fn run_submit_rate_limit_challenge(
     core_submit_rate_limit_challenge(&manager, &challenge, &captcha).await
 }
 
-pub(crate) async fn core_submit_rate_limit_challenge<S: Store + Send + 'static>(
-    manager: &Manager<S, Registered>,
+pub(crate) async fn core_submit_rate_limit_challenge(
+    manager: &RegisteredManager,
     challenge: &str,
     captcha: &str,
 ) -> anyhow::Result<SuccessResult> {

@@ -1,5 +1,4 @@
 use crate::cli::OutputMode;
-use crate::errors::SignalError;
 use serde::{Deserialize, Serialize};
 
 /// Marker: [`render_command_error`] already wrote the failure to stdout/stderr.
@@ -22,11 +21,7 @@ struct CliErrorBody {
 
 /// Emit a command failure in plain text or JSON (aligned with JSON-RPC error codes).
 pub fn render_command_error(err: &anyhow::Error, mode: OutputMode) {
-    let (code, message) = if let Some(signal_err) = err.downcast_ref::<SignalError>() {
-        (signal_err.json_rpc_code(), signal_err.to_string())
-    } else {
-        (-32603, err.to_string())
-    };
+    let (code, message) = crate::errors::json_rpc_code_for(err);
     match mode {
         OutputMode::PlainText => eprintln!("{message}"),
         OutputMode::Json => {
