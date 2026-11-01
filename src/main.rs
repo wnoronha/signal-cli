@@ -9,19 +9,23 @@ pub mod rpc;
 pub mod utils;
 
 use clap::Parser;
-use tracing::{error, info};
+use tracing::info;
 
 #[tokio::main]
 async fn main() {
     let args = cli::Cli::parse();
     utils::init_tracing(args.verbose, args.log_file.clone(), args.scrub_log);
+    let output = args.output;
 
     let local = tokio::task::LocalSet::new();
     local
         .run_until(async {
             if let Err(err) = run(args).await {
+                // Dispatch errors already rendered themselves. Pre-dispatch
+                // errors (config, account resolution) render here so
+                // `--output json` holds on every failure path.
                 if err.downcast_ref::<output::ErrorReported>().is_none() {
-                    error!("{err:#}");
+                    output::render_command_error(&err, output);
                 }
                 std::process::exit(1);
             }
