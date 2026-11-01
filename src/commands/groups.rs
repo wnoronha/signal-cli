@@ -1,17 +1,16 @@
 use std::path::Path;
 
-use presage::Manager;
 use presage::libsignal_service::groups_v2::Role;
 use presage::libsignal_service::protocol::ServiceId;
-use presage::manager::Registered;
-use presage::store::Store;
 
 use crate::errors::SignalError;
 use crate::output::{GroupInfo, GroupList, SendResult};
 use crate::utils::open_sqlite_store;
 
 use super::group_id::encode_group_id_b64;
-use super::load_registered_and_receive;
+use super::load_registered;
+use crate::app::RegisteredManager;
+use presage::store::ContentsStore;
 
 pub(crate) async fn run_list_groups(
     config_dir: &Path,
@@ -21,13 +20,13 @@ pub(crate) async fn run_list_groups(
 ) -> anyhow::Result<GroupList> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_list_groups(&mut manager, detailed, group_ids).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_list_groups<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_list_groups(
+    manager: &mut RegisteredManager,
     detailed: bool,
     group_ids: Vec<String>,
 ) -> anyhow::Result<GroupList> {

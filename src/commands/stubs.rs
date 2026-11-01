@@ -1,14 +1,11 @@
 use std::path::Path;
 
-use presage::Manager;
-use presage::manager::Registered;
-use presage::store::Store;
-
 use crate::errors::SignalError;
-use crate::output::{IdentityInfo, SendResult, SuccessResult};
+use crate::output::{IdentityInfo, SuccessResult};
 use crate::utils::open_sqlite_store;
 
-use super::load_registered_and_receive;
+use super::load_registered;
+use crate::app::RegisteredManager;
 
 pub(crate) async fn core_list_identities() -> anyhow::Result<Vec<IdentityInfo>> {
     Err(SignalError::LibraryLimitation(
@@ -50,76 +47,19 @@ pub(crate) async fn run_remove_contact(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_remove_contact(&mut manager, recipient).await
 }
 
 #[tracing::instrument(skip(_manager))]
-pub(crate) async fn core_remove_contact<S: Store + Send + 'static>(
-    _manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_remove_contact(
+    _manager: &mut RegisteredManager,
     _recipient: String,
 ) -> anyhow::Result<SuccessResult> {
     Err(SignalError::LibraryLimitation(
         "removeContact is not yet supported by presage.".to_string(),
     )
     .into())
-}
-
-pub(crate) async fn core_send_poll_create() -> anyhow::Result<SendResult> {
-    Err(SignalError::LibraryLimitation(
-        "Poll creation is not yet supported by presage (parameters ignored).".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_poll_create(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Option<String>,
-    _question: String,
-    _options: Vec<String>,
-    _multiple_answers: bool,
-) -> anyhow::Result<SendResult> {
-    let _account = crate::utils::require_account(active_account)?;
-    core_send_poll_create().await
-}
-
-pub(crate) async fn core_send_poll_vote() -> anyhow::Result<SendResult> {
-    Err(SignalError::LibraryLimitation(
-        "Poll voting is not yet supported by presage (parameters ignored).".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_poll_vote(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Option<String>,
-    _target_timestamp: i64,
-    _choices: Vec<i32>,
-) -> anyhow::Result<SendResult> {
-    let _account = crate::utils::require_account(active_account)?;
-    core_send_poll_vote().await
-}
-
-pub(crate) async fn core_send_poll_terminate() -> anyhow::Result<SendResult> {
-    Err(SignalError::LibraryLimitation(
-        "Poll termination is not yet supported by presage (parameters ignored).".to_string(),
-    )
-    .into())
-}
-
-pub(crate) async fn run_send_poll_terminate(
-    _config_dir: &Path,
-    active_account: Option<String>,
-    _recipient: Vec<String>,
-    _group_id: Option<String>,
-    _target_timestamp: i64,
-) -> anyhow::Result<SendResult> {
-    let _account = crate::utils::require_account(active_account)?;
-    core_send_poll_terminate().await
 }
 
 pub(crate) async fn core_block() -> anyhow::Result<SuccessResult> {

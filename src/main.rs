@@ -1,6 +1,8 @@
+pub mod app;
 pub mod cli;
 pub mod commands;
 pub mod compat;
+pub mod domain;
 pub mod errors;
 pub mod output;
 pub mod rpc;

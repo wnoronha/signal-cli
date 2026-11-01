@@ -1,16 +1,15 @@
 use crate::cli::Command;
-use crate::commands::build_receive_envelope;
-use crate::rpc::context::{DaemonContext, ManagerHandle};
+use crate::rpc::context::DaemonContext;
 use crate::rpc::handler;
 use crate::rpc::models::*;
+use crate::rpc::notify::spawn_for_account;
 use axum::{
     Json, Router,
     extract::State,
     response::sse::{Event, Sse},
     routing::{get, post},
 };
-use futures::{StreamExt as _, pin_mut, stream::Stream};
-use presage::model::messages::Received;
+use futures::{StreamExt as _, stream::Stream};
 use std::convert::Infallible;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -176,60 +175,6 @@ async fn handle_check_get() -> &'static str {
     "OK"
 }
 
-fn spawn_receive_loop(
-    ctx: Arc<DaemonContext>,
-    account: String,
-    notification_tx: broadcast::Sender<String>,
-) {
-    tokio::task::spawn_local(async move {
-        let manager_handle: ManagerHandle = match ctx.manager_for(&account).await {
-            Ok(h) => h,
-            Err(e) => {
-                warn!(%account, error = %e, "receive loop: failed to load account");
-                return;
-            }
-        };
-        // Clone under a short lock, then run the network stream on the clone
-        // so RPC handlers are not blocked by `receive_messages().await`.
-        let mut receive_manager = manager_handle.lock().await.clone();
-        let messages = match receive_manager.receive_messages().await {
-            Ok(s) => s,
-            Err(e) => {
-                warn!(%account, error = %e, "receive loop: failed to start message stream");
-                return;
-            }
-        };
-        pin_mut!(messages);
-        while let Some(received_res) = messages.next().await {
-            match received_res {
-                Received::Content(content) => {
-                    let envelope = build_receive_envelope(&receive_manager, &content).await;
-                    let mut params = serde_json::Map::new();
-                    params.insert(
-                        "envelope".to_string(),
-                        serde_json::to_value(envelope).unwrap_or(serde_json::Value::Null),
-                    );
-                    params.insert(
-                        "account".to_string(),
-                        serde_json::Value::String(account.clone()),
-                    );
-                    let notification = JsonRpcNotification {
-                        jsonrpc: "2.0".to_string(),
-                        method: "receive".to_string(),
-                        params: Some(serde_json::Value::Object(params)),
-                    };
-                    if let Ok(json) = serde_json::to_string(&notification) {
-                        let _ = notification_tx.send(json);
-                    }
-                }
-                Received::QueueEmpty => {}
-                _ => {}
-            }
-        }
-        warn!(%account, "Message stream ended for account");
-    });
-}
-
 pub async fn run_json_rpc(
     config_dir: PathBuf,
     active_account: Option<String>,
@@ -242,7 +187,7 @@ pub async fn run_json_rpc(
 
     ctx.set_notifier(notification_tx.clone()).await;
     for account in ctx.accounts_for_receive()? {
-        spawn_receive_loop(ctx.clone(), account, notification_tx.clone());
+        spawn_for_account(ctx.clone(), account, notification_tx.clone()).await;
     }
 
     let ctx_rpc = ctx.clone();

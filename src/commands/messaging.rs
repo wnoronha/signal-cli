@@ -7,115 +7,321 @@ use presage::Manager;
 use presage::libsignal_service::content::{ContentBody, DataMessage, GroupContextV2};
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::proto::{
-    ReceiptMessage, TypingMessage, data_message, receipt_message, typing_message,
+    BodyRange, Preview, ReceiptMessage, TypingMessage, body_range, data_message, receipt_message,
+    typing_message,
 };
 use presage::libsignal_service::protocol::ServiceId;
-use presage::manager::Registered;
 use presage::model::messages::Received;
-use presage::store::Store;
 
 use crate::output::{ReceiveEnvelope, SendResult, SuccessResult};
 use crate::utils::{now_millis, open_sqlite_store, resolve_recipient, u64_from_i64_nonnegative};
 
-use super::{build_receive_envelope, load_registered_and_receive, parse_group_id};
+use super::{build_receive_envelope, load_registered, parse_group_id};
+use crate::app::RegisteredManager;
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn run_send(
-    config_dir: &Path,
-    active_account: Option<String>,
-    note_to_self: bool,
-    recipient: Vec<String>,
-    group_id: Option<String>,
-    message: Option<String>,
-    message_from_stdin: bool,
-    attachment: Vec<String>,
-    attachment_dir: Option<PathBuf>,
-) -> anyhow::Result<SendResult> {
-    let account = crate::utils::require_account(active_account)?;
-    let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
-
-    let mut body_text = message;
-    if message_from_stdin {
-        use tokio::io::AsyncReadExt;
-        let mut buffer = String::new();
-        tokio::io::stdin().read_to_string(&mut buffer).await?;
-        body_text = Some(buffer.trim().to_string());
-    }
-
-    core_send(
-        &mut manager,
-        note_to_self,
-        recipient,
-        group_id,
-        body_text,
-        attachment,
-        attachment_dir,
-    )
-    .await
+/// Fully-typed `send` arguments. Parsed once at the CLI/RPC boundary;
+/// `core_send_full` trusts them.
+#[derive(Debug, Default)]
+pub(crate) struct SendArgs {
+    pub note_to_self: bool,
+    pub recipient: Vec<String>,
+    pub username: Option<String>,
+    pub group_id: Option<String>,
+    pub body_text: Option<String>,
+    pub attachment: Vec<String>,
+    pub attachment_dir: Option<PathBuf>,
+    pub view_once: bool,
+    pub sticker: Option<String>,
+    pub mention: Vec<String>,
+    pub text_style: Vec<String>,
+    pub quote_timestamp: Option<i64>,
+    pub quote_author: Option<String>,
+    pub quote_message: Option<String>,
+    pub quote_mention: Vec<String>,
+    pub quote_text_style: Vec<String>,
+    pub quote_attachment: Vec<String>,
+    pub preview_url: Option<String>,
+    pub preview_title: Option<String>,
+    pub preview_description: Option<String>,
+    pub preview_image: Option<String>,
+    pub story_timestamp: Option<i64>,
+    pub story_author: Option<String>,
+    pub edit_timestamp: Option<i64>,
 }
 
-#[tracing::instrument(skip(manager, body_text))]
-pub(crate) async fn core_send<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
-    note_to_self: bool,
-    recipient: Vec<String>,
-    group_id: Option<String>,
-    body_text: Option<String>,
-    attachment: Vec<String>,
-    attachment_dir: Option<PathBuf>,
+/// Resolve any recipient string to raw ACI bytes for mention/quote/pin targets.
+async fn resolve_aci_bytes(
+    manager: &mut RegisteredManager,
+    recipient: &str,
+) -> anyhow::Result<[u8; 16]> {
+    let sid = resolve_recipient(manager, recipient).await?;
+    let uuid = match sid {
+        ServiceId::Aci(u) => Uuid::from(u),
+        ServiceId::Pni(u) => Uuid::from(u),
+    };
+    Ok(*uuid.as_bytes())
+}
+
+/// Parse `start:length:recipient` (UTF-16 code units) into a mention range.
+async fn parse_mention(manager: &mut RegisteredManager, spec: &str) -> anyhow::Result<BodyRange> {
+    let mut parts = spec.splitn(3, ':');
+    let (start_s, len_s, recipient) = match (parts.next(), parts.next(), parts.next()) {
+        (Some(s), Some(l), Some(r)) => (s, l, r),
+        _ => anyhow::bail!("Invalid --mention '{spec}'; expected start:length:recipient"),
+    };
+    let start: u32 = start_s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid --mention '{spec}': bad start"))?;
+    let length: u32 = len_s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid --mention '{spec}': bad length"))?;
+    let aci = resolve_aci_bytes(manager, recipient).await?;
+    Ok(BodyRange {
+        start: Some(start),
+        length: Some(length),
+        associated_value: Some(body_range::AssociatedValue::MentionAciBinary(aci.to_vec())),
+    })
+}
+
+/// Parse `start:length:STYLE` into a style range.
+fn parse_text_style(spec: &str) -> anyhow::Result<BodyRange> {
+    let mut parts = spec.splitn(3, ':');
+    let (start_s, len_s, style) = match (parts.next(), parts.next(), parts.next()) {
+        (Some(s), Some(l), Some(st)) => (s, l, st),
+        _ => anyhow::bail!("Invalid --text-style '{spec}'; expected start:length:STYLE"),
+    };
+    let start: u32 = start_s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid --text-style '{spec}': bad start"))?;
+    let length: u32 = len_s
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid --text-style '{spec}': bad length"))?;
+    let style = match style.to_ascii_uppercase().as_str() {
+        "BOLD" => body_range::Style::Bold,
+        "ITALIC" => body_range::Style::Italic,
+        "SPOILER" => body_range::Style::Spoiler,
+        "STRIKETHROUGH" => body_range::Style::Strikethrough,
+        "MONOSPACE" => body_range::Style::Monospace,
+        _ => anyhow::bail!(
+            "Invalid --text-style '{spec}': unknown style (BOLD, ITALIC, SPOILER, STRIKETHROUGH, MONOSPACE)"
+        ),
+    };
+    Ok(BodyRange {
+        start: Some(start),
+        length: Some(length),
+        associated_value: Some(body_range::AssociatedValue::Style(style as i32)),
+    })
+}
+
+#[tracing::instrument(skip(manager, args))]
+pub(crate) async fn core_send_full(
+    manager: &mut RegisteredManager,
+    mut args: SendArgs,
 ) -> anyhow::Result<SendResult> {
     use tracing::warn;
-    let dir = attachment_dir.or_else(|| {
+    let dir = args.attachment_dir.or_else(|| {
         std::env::var("SIGNAL_CLI_ATTACHMENT_DIR")
             .ok()
             .map(PathBuf::from)
     });
-    let attachments = upload_attachments_in_dir(attachment, manager, dir).await?;
+    let attachments =
+        upload_attachments_in_dir(std::mem::take(&mut args.attachment), manager, dir.clone())
+            .await?;
+
+    // Mentions and text styles resolve against the live manager (network for
+    // unknown phone numbers), so they are built before the send loop.
+    let mut body_ranges = Vec::new();
+    for spec in &args.mention {
+        body_ranges.push(parse_mention(manager, spec).await?);
+    }
+    for spec in &args.text_style {
+        body_ranges.push(parse_text_style(spec)?);
+    }
+
+    // Quote assembly (optional).
+    let quote = if args.quote_timestamp.is_some()
+        || args.quote_author.is_some()
+        || args.quote_message.is_some()
+    {
+        let ts = args
+            .quote_timestamp
+            .ok_or_else(|| anyhow::anyhow!("--quote-timestamp is required when quoting"))?;
+        let author = args
+            .quote_author
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--quote-author is required when quoting"))?;
+        let author_aci = resolve_aci_bytes(manager, &author).await?;
+        let mut quote_ranges = Vec::new();
+        for spec in &args.quote_mention {
+            quote_ranges.push(parse_mention(manager, spec).await?);
+        }
+        for spec in &args.quote_text_style {
+            quote_ranges.push(parse_text_style(spec)?);
+        }
+        let mut quoted_attachments = Vec::new();
+        for spec in &args.quote_attachment {
+            // contentType[:filename[:previewFile]]; the preview thumbnail is
+            // not re-uploaded (documented deviation).
+            let mut parts = spec.splitn(3, ':');
+            let content_type = parts.next().unwrap_or("").to_string();
+            if content_type.is_empty() {
+                anyhow::bail!(
+                    "Invalid --quote-attachment '{spec}'; expected contentType[:filename]"
+                );
+            }
+            quoted_attachments.push(data_message::quote::QuotedAttachment {
+                content_type: Some(content_type),
+                file_name: parts.next().map(str::to_string),
+                thumbnail: None,
+            });
+        }
+        Some(data_message::Quote {
+            id: Some(crate::utils::u64_from_i64_nonnegative(
+                ts,
+                "quote_timestamp",
+            )?),
+            author_aci: None,
+            author_aci_binary: Some(author_aci.to_vec()),
+            text: args.quote_message.clone(),
+            attachments: quoted_attachments,
+            body_ranges: quote_ranges,
+            r#type: None,
+        })
+    } else {
+        None
+    };
+
+    // Sticker (packId:stickerId, hex pack id).
+    let sticker = args
+        .sticker
+        .as_deref()
+        .map(|spec| -> anyhow::Result<data_message::Sticker> {
+            let (pack, id) = spec.split_once(':').ok_or_else(|| {
+                anyhow::anyhow!("Invalid --sticker '{spec}'; expected packId:stickerId")
+            })?;
+            let pack_id = hex::decode(pack.trim_start_matches("0x"))
+                .map_err(|e| anyhow::anyhow!("Invalid --sticker pack id: {e:?}"))?;
+            let sticker_id: u32 = id
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid --sticker '{spec}': bad sticker id"))?;
+            Ok(data_message::Sticker {
+                pack_id: Some(pack_id),
+                pack_key: None,
+                sticker_id: Some(sticker_id),
+                data: None,
+                emoji: None,
+            })
+        })
+        .transpose()?;
+
+    // Explicit link preview (all local; no network fetch).
+    let preview = match (args.preview_url.clone(), args.preview_title.clone()) {
+        (None, None) => None,
+        (Some(url), Some(title)) => {
+            if let Some(ref body) = args.body_text
+                && !body.contains(&url)
+            {
+                warn!(
+                    "Preview URL does not appear in the message body; clients may ignore the preview"
+                );
+            }
+            let image = match args.preview_image.clone() {
+                Some(path) => {
+                    let pointers =
+                        upload_attachments_in_dir(vec![path], manager, dir.clone()).await?;
+                    pointers.into_iter().next()
+                }
+                None => None,
+            };
+            Some(Preview {
+                url: Some(url),
+                title: Some(title),
+                description: args.preview_description.clone(),
+                image,
+                date: None,
+            })
+        }
+        _ => anyhow::bail!("--preview-url and --preview-title must be given together"),
+    };
+
+    // Story reply context.
+    let story_context = match (args.story_timestamp, args.story_author.clone()) {
+        (None, None) => None,
+        (Some(ts), Some(author)) => {
+            let aci = resolve_aci_bytes(manager, &author).await?;
+            Some(data_message::StoryContext {
+                author_aci: None,
+                sent_timestamp: Some(crate::utils::u64_from_i64_nonnegative(
+                    ts,
+                    "story_timestamp",
+                )?),
+                author_aci_binary: Some(aci.to_vec()),
+            })
+        }
+        _ => anyhow::bail!("--story-timestamp and --story-author must be given together"),
+    };
+
+    if args.edit_timestamp.is_some() {
+        warn!(
+            "--edit-timestamp is not sent: this build cannot emit EditMessage (sync-message path)"
+        );
+    }
 
     let timestamp = now_millis()?;
 
-    if let Some(ref gid) = group_id {
+    // Resolve recipients, including username lookup.
+    let mut resolved_recipients = Vec::new();
+    if args.note_to_self {
+        resolved_recipients.push(ServiceId::Aci(
+            manager.registration_data().service_ids.aci.into(),
+        ));
+    }
+    if let Some(ref username) = args.username {
+        match manager.lookup_username(username).await {
+            Ok(Some(aci)) => {
+                let uuid: Uuid = aci.into();
+                resolved_recipients.push(ServiceId::Aci(uuid.into()));
+            }
+            Ok(None) => anyhow::bail!("Username not found: {username}"),
+            Err(e) => anyhow::bail!("Username lookup failed for {username}: {e:?}"),
+        }
+    }
+    for rec in &args.recipient {
+        match resolve_recipient(manager, rec).await {
+            Ok(resolved) => resolved_recipients.push(resolved),
+            Err(e) => warn!("Error resolving recipient {}: {:?}", rec, e),
+        }
+    }
+    if resolved_recipients.is_empty() && args.group_id.is_none() {
+        anyhow::bail!("No valid recipients specified.");
+    }
+
+    let data_message = DataMessage {
+        body: args.body_text.clone(),
+        attachments,
+        body_ranges,
+        quote,
+        sticker,
+        preview: preview.into_iter().collect(),
+        story_context,
+        is_view_once: Some(args.view_once).filter(|v| *v),
+        ..Default::default()
+    };
+
+    if let Some(ref gid) = args.group_id {
         let master_key = parse_group_id(gid)?;
-        let data_message = DataMessage {
-            body: body_text,
-            attachments,
-            group_v2: Some(GroupContextV2 {
-                master_key: Some(master_key.to_vec()),
-                revision: Some(0),
-                ..Default::default()
-            }),
+        let mut grouped = data_message;
+        grouped.group_v2 = Some(GroupContextV2 {
+            master_key: Some(master_key.to_vec()),
+            revision: Some(0),
             ..Default::default()
-        };
-        let content_body = ContentBody::DataMessage(data_message);
+        });
+        let content_body = ContentBody::DataMessage(grouped);
         manager
             .send_message_to_group(&master_key, content_body, timestamp)
             .await?;
     } else {
-        let mut resolved_recipients = Vec::new();
-        if note_to_self {
-            resolved_recipients.push(ServiceId::Aci(
-                manager.registration_data().service_ids.aci.into(),
-            ));
-        }
-        for rec in recipient {
-            match resolve_recipient(manager, &rec).await {
-                Ok(resolved) => resolved_recipients.push(resolved),
-                Err(e) => warn!("Error resolving recipient {}: {:?}", rec, e),
-            }
-        }
-
-        if resolved_recipients.is_empty() {
-            anyhow::bail!("No valid recipients specified.");
-        }
-
-        let data_message = DataMessage {
-            body: body_text,
-            attachments,
-            ..Default::default()
-        };
         let content_body = ContentBody::DataMessage(data_message);
-
         for r in resolved_recipients {
             manager
                 .send_message(r, content_body.clone(), timestamp)
@@ -123,6 +329,31 @@ pub(crate) async fn core_send<S: Store + Send + 'static>(
         }
     }
     Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager, body_text))]
+pub(crate) async fn core_send(
+    manager: &mut RegisteredManager,
+    note_to_self: bool,
+    recipient: Vec<String>,
+    group_id: Option<String>,
+    body_text: Option<String>,
+    attachment: Vec<String>,
+    attachment_dir: Option<PathBuf>,
+) -> anyhow::Result<SendResult> {
+    core_send_full(
+        manager,
+        SendArgs {
+            note_to_self,
+            recipient,
+            group_id,
+            body_text,
+            attachment,
+            attachment_dir,
+            ..Default::default()
+        },
+    )
+    .await
 }
 
 pub(crate) async fn run_receive(
@@ -138,8 +369,8 @@ pub(crate) async fn run_receive(
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_receive<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_receive(
+    manager: &mut RegisteredManager,
     max_messages: Option<usize>,
 ) -> anyhow::Result<Vec<ReceiveEnvelope>> {
     use tracing::{debug, info};
@@ -179,9 +410,9 @@ pub(crate) async fn core_receive<S: Store + Send + 'static>(
     Ok(envelopes)
 }
 
-async fn upload_attachments_in_dir<S: Store>(
+async fn upload_attachments_in_dir(
     attachment_filepath: Vec<String>,
-    manager: &Manager<S, Registered>,
+    manager: &RegisteredManager,
     allowed_dir: Option<PathBuf>,
 ) -> anyhow::Result<Vec<presage::proto::AttachmentPointer>> {
     use mime_guess::mime::APPLICATION_OCTET_STREAM;
@@ -318,7 +549,7 @@ pub(crate) async fn run_send_reaction(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
 
     core_send_reaction(
         &mut manager,
@@ -335,8 +566,8 @@ pub(crate) async fn run_send_reaction(
 
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_send_reaction<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_send_reaction(
+    manager: &mut RegisteredManager,
     recipient: Vec<String>,
     group_id: Option<String>,
     note_to_self: bool,
@@ -407,14 +638,14 @@ pub(crate) async fn run_send_receipt(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
 
     core_send_receipt(&mut manager, recipient, target_timestamp, r#type).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_send_receipt<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_send_receipt(
+    manager: &mut RegisteredManager,
     recipient: String,
     target_timestamp: i64,
     r#type: Option<String>,
@@ -457,14 +688,14 @@ pub(crate) async fn run_send_typing(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
 
     core_send_typing(&mut manager, recipient, group_id, stop).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_send_typing<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_send_typing(
+    manager: &mut RegisteredManager,
     recipient: Vec<String>,
     group_id: Option<String>,
     stop: bool,
@@ -517,13 +748,13 @@ pub(crate) async fn run_remote_delete(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_remote_delete(&mut manager, recipient, group_id, target_timestamp).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_remote_delete<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_remote_delete(
+    manager: &mut RegisteredManager,
     recipient: Vec<String>,
     group_id: Option<String>,
     target_timestamp: i64,
@@ -561,4 +792,514 @@ pub(crate) async fn core_remote_delete<S: Store + Send + 'static>(
         success: true,
         message: "Remote delete sent successfully.".to_string(),
     })
+}
+
+/// Shared recipient + group resolution for content-message senders.
+/// Returns `(direct_recipients, group_master_key)`.
+async fn resolve_send_targets(
+    manager: &mut RegisteredManager,
+    note_to_self: bool,
+    recipient: Vec<String>,
+    username: Option<String>,
+    group_id: Option<String>,
+) -> anyhow::Result<(Vec<ServiceId>, Option<[u8; 32]>)> {
+    if let Some(ref gid) = group_id {
+        return Ok((Vec::new(), Some(parse_group_id(gid)?)));
+    }
+    let mut resolved = Vec::new();
+    if note_to_self {
+        resolved.push(ServiceId::Aci(
+            manager.registration_data().service_ids.aci.into(),
+        ));
+    }
+    if let Some(ref name) = username {
+        match manager.lookup_username(name).await {
+            Ok(Some(aci)) => {
+                let uuid: Uuid = aci.into();
+                resolved.push(ServiceId::Aci(uuid.into()));
+            }
+            Ok(None) => anyhow::bail!("Username not found: {name}"),
+            Err(e) => anyhow::bail!("Username lookup failed for {name}: {e:?}"),
+        }
+    }
+    for rec in recipient {
+        resolved.push(resolve_recipient(manager, &rec).await?);
+    }
+    if resolved.is_empty() {
+        anyhow::bail!("No valid recipients specified.");
+    }
+    Ok((resolved, None))
+}
+
+async fn deliver_content(
+    manager: &mut RegisteredManager,
+    targets: (Vec<ServiceId>, Option<[u8; 32]>),
+    content_body: ContentBody,
+) -> anyhow::Result<u64> {
+    let timestamp = now_millis()?;
+    match targets.1 {
+        Some(master_key) => {
+            manager
+                .send_message_to_group(&master_key, content_body, timestamp)
+                .await?;
+        }
+        None => {
+            for r in targets.0 {
+                manager
+                    .send_message(r, content_body.clone(), timestamp)
+                    .await?;
+            }
+        }
+    }
+    Ok(timestamp)
+}
+
+#[tracing::instrument(skip(manager))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn core_send_poll_create(
+    manager: &mut RegisteredManager,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    question: String,
+    options: Vec<String>,
+    allow_multiple: bool,
+) -> anyhow::Result<SendResult> {
+    if options.len() < 2 || options.len() > 10 {
+        anyhow::bail!("Poll requires between 2 and 10 options.");
+    }
+    for opt in &options {
+        if opt.is_empty() || opt.len() > 100 {
+            anyhow::bail!("Each poll option must be between 1 and 100 characters.");
+        }
+    }
+    let data_message = DataMessage {
+        poll_create: Some(data_message::PollCreate {
+            question: Some(question),
+            allow_multiple: Some(allow_multiple),
+            options,
+        }),
+        ..Default::default()
+    };
+    let targets =
+        resolve_send_targets(manager, note_to_self, recipient, username, group_id).await?;
+    let timestamp =
+        deliver_content(manager, targets, ContentBody::DataMessage(data_message)).await?;
+    Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn core_send_poll_vote(
+    manager: &mut RegisteredManager,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    poll_author: String,
+    poll_timestamp: i64,
+    choices: Vec<u32>,
+    vote_count: u32,
+) -> anyhow::Result<SendResult> {
+    let author_aci = resolve_aci_bytes(manager, &poll_author).await?;
+    let data_message = DataMessage {
+        poll_vote: Some(data_message::PollVote {
+            target_author_aci_binary: Some(author_aci.to_vec()),
+            target_sent_timestamp: Some(u64_from_i64_nonnegative(
+                poll_timestamp,
+                "poll_timestamp",
+            )?),
+            option_indexes: choices,
+            vote_count: Some(vote_count),
+        }),
+        ..Default::default()
+    };
+    let targets =
+        resolve_send_targets(manager, note_to_self, recipient, username, group_id).await?;
+    let timestamp =
+        deliver_content(manager, targets, ContentBody::DataMessage(data_message)).await?;
+    Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn core_send_poll_terminate(
+    manager: &mut RegisteredManager,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    poll_timestamp: i64,
+) -> anyhow::Result<SendResult> {
+    let data_message = DataMessage {
+        poll_terminate: Some(data_message::PollTerminate {
+            target_sent_timestamp: Some(u64_from_i64_nonnegative(
+                poll_timestamp,
+                "poll_timestamp",
+            )?),
+        }),
+        ..Default::default()
+    };
+    let targets =
+        resolve_send_targets(manager, note_to_self, recipient, username, group_id).await?;
+    let timestamp =
+        deliver_content(manager, targets, ContentBody::DataMessage(data_message)).await?;
+    Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn core_send_pin_message(
+    manager: &mut RegisteredManager,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    target_author: String,
+    target_timestamp: i64,
+    pin_duration_secs: Option<i64>,
+) -> anyhow::Result<SendResult> {
+    let author_aci = resolve_aci_bytes(manager, &target_author).await?;
+    // CLI default is -1 (forever).
+    let pin_duration = match pin_duration_secs.unwrap_or(-1) {
+        d if d < 0 => Some(data_message::pin_message::PinDuration::PinDurationForever(
+            true,
+        )),
+        d => Some(data_message::pin_message::PinDuration::PinDurationSeconds(
+            crate::utils::u32_from_i64_nonnegative(d, "pin_duration")?,
+        )),
+    };
+    let data_message = DataMessage {
+        pin_message: Some(data_message::PinMessage {
+            target_author_aci_binary: Some(author_aci.to_vec()),
+            target_sent_timestamp: Some(u64_from_i64_nonnegative(
+                target_timestamp,
+                "target_timestamp",
+            )?),
+            pin_duration,
+        }),
+        ..Default::default()
+    };
+    let targets =
+        resolve_send_targets(manager, note_to_self, recipient, username, group_id).await?;
+    let timestamp =
+        deliver_content(manager, targets, ContentBody::DataMessage(data_message)).await?;
+    Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn core_send_unpin_message(
+    manager: &mut RegisteredManager,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    target_author: String,
+    target_timestamp: i64,
+) -> anyhow::Result<SendResult> {
+    let author_aci = resolve_aci_bytes(manager, &target_author).await?;
+    let data_message = DataMessage {
+        unpin_message: Some(data_message::UnpinMessage {
+            target_author_aci_binary: Some(author_aci.to_vec()),
+            target_sent_timestamp: Some(u64_from_i64_nonnegative(
+                target_timestamp,
+                "target_timestamp",
+            )?),
+        }),
+        ..Default::default()
+    };
+    let targets =
+        resolve_send_targets(manager, note_to_self, recipient, username, group_id).await?;
+    let timestamp =
+        deliver_content(manager, targets, ContentBody::DataMessage(data_message)).await?;
+    Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_send_payment_notification(
+    manager: &mut RegisteredManager,
+    recipient: String,
+    receipt_b64: String,
+    note: Option<String>,
+) -> anyhow::Result<SendResult> {
+    use base64::Engine;
+    let receipt = BASE64_STANDARD
+        .decode(receipt_b64.trim())
+        .map_err(|e| anyhow::anyhow!("Invalid base64 --receipt: {e:?}"))?;
+    let service_id = resolve_recipient(manager, &recipient).await?;
+    let data_message = DataMessage {
+        payment: Some(data_message::Payment {
+            item: Some(data_message::payment::Item::Notification(
+                data_message::payment::Notification {
+                    transaction: Some(
+                        data_message::payment::notification::Transaction::MobileCoin(
+                            data_message::payment::notification::MobileCoin {
+                                receipt: Some(receipt),
+                            },
+                        ),
+                    ),
+                    note,
+                },
+            )),
+        }),
+        ..Default::default()
+    };
+    let timestamp = now_millis()?;
+    manager
+        .send_message(
+            service_id,
+            ContentBody::DataMessage(data_message),
+            timestamp,
+        )
+        .await?;
+    Ok(SendResult { timestamp })
+}
+
+#[tracing::instrument(skip(manager))]
+pub(crate) async fn core_send_admin_delete(
+    manager: &mut RegisteredManager,
+    group_id: String,
+    target_author: String,
+    target_timestamp: i64,
+) -> anyhow::Result<SendResult> {
+    let master_key = parse_group_id(&group_id)?;
+    let author_aci = resolve_aci_bytes(manager, &target_author).await?;
+    let data_message = DataMessage {
+        admin_delete: Some(data_message::AdminDelete {
+            target_author_aci_binary: Some(author_aci.to_vec()),
+            target_sent_timestamp: Some(u64_from_i64_nonnegative(
+                target_timestamp,
+                "target_timestamp",
+            )?),
+        }),
+        ..Default::default()
+    };
+    let timestamp = now_millis()?;
+    manager
+        .send_message_to_group(
+            &master_key,
+            ContentBody::DataMessage(data_message),
+            timestamp,
+        )
+        .await?;
+    Ok(SendResult { timestamp })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_poll_create_full(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    question: String,
+    options: Vec<String>,
+    allow_multiple: bool,
+) -> anyhow::Result<SendResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_poll_create(
+        &mut manager,
+        recipient,
+        username,
+        note_to_self,
+        group_id,
+        question,
+        options,
+        allow_multiple,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_poll_vote_full(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    poll_author: String,
+    poll_timestamp: i64,
+    choices: Vec<u32>,
+    vote_count: u32,
+) -> anyhow::Result<SendResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_poll_vote(
+        &mut manager,
+        recipient,
+        username,
+        note_to_self,
+        group_id,
+        poll_author,
+        poll_timestamp,
+        choices,
+        vote_count,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_poll_terminate_full(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    poll_timestamp: i64,
+) -> anyhow::Result<SendResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_poll_terminate(
+        &mut manager,
+        recipient,
+        username,
+        note_to_self,
+        group_id,
+        poll_timestamp,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_pin_message(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    pin_duration: Option<i64>,
+    target_author: String,
+    target_timestamp: i64,
+) -> anyhow::Result<SuccessResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_pin_message(
+        &mut manager,
+        recipient,
+        username,
+        note_to_self,
+        group_id,
+        target_author,
+        target_timestamp,
+        pin_duration,
+    )
+    .await?;
+    Ok(SuccessResult {
+        success: true,
+        message: "Pin message sent successfully.".to_string(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_unpin_message(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: Vec<String>,
+    username: Option<String>,
+    note_to_self: bool,
+    group_id: Option<String>,
+    target_author: String,
+    target_timestamp: i64,
+) -> anyhow::Result<SuccessResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_unpin_message(
+        &mut manager,
+        recipient,
+        username,
+        note_to_self,
+        group_id,
+        target_author,
+        target_timestamp,
+    )
+    .await?;
+    Ok(SuccessResult {
+        success: true,
+        message: "Unpin message sent successfully.".to_string(),
+    })
+}
+
+pub(crate) async fn run_send_payment_notification(
+    config_dir: &Path,
+    active_account: Option<String>,
+    recipient: String,
+    receipt: String,
+    note: Option<String>,
+) -> anyhow::Result<SendResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_payment_notification(&mut manager, recipient, receipt, note).await
+}
+
+pub(crate) async fn run_send_admin_delete(
+    config_dir: &Path,
+    active_account: Option<String>,
+    group_id: String,
+    target_author: String,
+    target_timestamp: i64,
+) -> anyhow::Result<SendResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    core_send_admin_delete(&mut manager, group_id, target_author, target_timestamp).await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_send_full(
+    config_dir: &Path,
+    active_account: Option<String>,
+    args: SendArgs,
+    message_from_stdin: bool,
+    attachment_dir: Option<PathBuf>,
+) -> anyhow::Result<SendResult> {
+    let account = crate::utils::require_account(active_account)?;
+    let store = open_sqlite_store(config_dir, &account).await?;
+    let mut manager = load_registered(store).await?;
+    let mut args = args;
+    if message_from_stdin {
+        use tokio::io::AsyncReadExt;
+        let mut buffer = String::new();
+        tokio::io::stdin().read_to_string(&mut buffer).await?;
+        args.body_text = Some(buffer.trim().to_string());
+    }
+    if args.attachment_dir.is_none() {
+        args.attachment_dir = attachment_dir;
+    }
+    core_send_full(&mut manager, args).await
+}
+
+#[cfg(test)]
+mod send_args_tests {
+    use super::parse_text_style;
+
+    #[test]
+    fn text_style_parses_bold_range() {
+        let range = parse_text_style("10:3:BOLD").unwrap();
+        assert_eq!(range.start, Some(10));
+        assert_eq!(range.length, Some(3));
+    }
+
+    #[test]
+    fn text_style_rejects_unknown_style() {
+        assert!(parse_text_style("0:9:UNDERLINE").is_err());
+    }
+
+    #[test]
+    fn text_style_rejects_bad_shape() {
+        assert!(parse_text_style("10:BOLD").is_err());
+        assert!(parse_text_style("x:3:BOLD").is_err());
+    }
 }

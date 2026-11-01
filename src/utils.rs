@@ -1,19 +1,18 @@
 use anyhow::{Result, anyhow};
-use presage::Manager;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::proto::attachment_pointer::AttachmentIdentifier;
 use presage::libsignal_service::protocol::ServiceId;
-use presage::manager::Registered;
 use presage::model::identity::OnNewIdentity;
-use presage::store::Store;
 use presage_store_sqlite::SqliteStore;
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing_subscriber::{EnvFilter, fmt};
 
+use crate::app::RegisteredManager;
 use crate::cli::TrustMode;
 use crate::errors::SignalError;
+use presage::store::ContentsStore;
 
 thread_local! {
     static ACTIVE_STORE_IDENTITY: RefCell<Option<OnNewIdentity>> = const { RefCell::new(None) };
@@ -212,13 +211,23 @@ pub async fn open_sqlite_store(
     config_dir: &Path,
     account: &str,
 ) -> Result<SqliteStore, SignalError> {
+    open_sqlite_store_with_trust(config_dir, account, active_store_identity()).await
+}
+
+/// Explicit-trust variant. New code passes trust directly instead of relying
+/// on the thread-local set by [`push_store_identity`].
+pub async fn open_sqlite_store_with_trust(
+    config_dir: &Path,
+    account: &str,
+    on_new_identity: OnNewIdentity,
+) -> Result<SqliteStore, SignalError> {
     validate_account_name(account)?;
     let db_path = config_dir.join(format!("{account}.db"));
     if tokio::fs::try_exists(&db_path)
         .await
         .map_err(|e| SignalError::StoreError(e.to_string()))?
     {
-        open_sqlite_at_path(&db_path).await
+        open_sqlite_at_path_with_trust(&db_path, on_new_identity).await
     } else {
         Err(SignalError::AccountNotFound(account.to_string()))
     }
@@ -230,9 +239,18 @@ pub async fn open_or_create_sqlite_store(
     config_dir: &Path,
     account: &str,
 ) -> Result<SqliteStore, SignalError> {
+    open_or_create_sqlite_store_with_trust(config_dir, account, active_store_identity()).await
+}
+
+/// Explicit-trust variant for registration and linking paths.
+pub async fn open_or_create_sqlite_store_with_trust(
+    config_dir: &Path,
+    account: &str,
+    on_new_identity: OnNewIdentity,
+) -> Result<SqliteStore, SignalError> {
     validate_db_name(account)?;
     let db_path = config_dir.join(format!("{account}.db"));
-    open_sqlite_at_path(&db_path).await
+    open_sqlite_at_path_with_trust(&db_path, on_new_identity).await
 }
 
 /// Validate internal DB names (`+E.164` or `link_temp_*` with safe charset).
@@ -253,8 +271,10 @@ pub fn validate_db_name(name: &str) -> Result<(), SignalError> {
     Err(SignalError::AccountNotFound(name.to_string()))
 }
 
-async fn open_sqlite_at_path(db_path: &Path) -> Result<SqliteStore, SignalError> {
-    let on_new_identity = active_store_identity();
+async fn open_sqlite_at_path_with_trust(
+    db_path: &Path,
+    on_new_identity: OnNewIdentity,
+) -> Result<SqliteStore, SignalError> {
     tracing::debug!("Opening account database");
     let path_str = db_path.to_str().ok_or_else(|| {
         SignalError::StoreError("account database path is not valid UTF-8".to_string())
@@ -279,8 +299,8 @@ pub fn attachment_id_str(id: &AttachmentIdentifier) -> String {
 }
 
 /// Resolve a recipient string (phone number or UUID) to a ServiceId.
-pub async fn resolve_recipient<S: Store + Send>(
-    manager: &mut Manager<S, Registered>,
+pub async fn resolve_recipient(
+    manager: &mut RegisteredManager,
     recipient: &str,
 ) -> Result<ServiceId, SignalError> {
     if let Ok(uuid) = uuid::Uuid::parse_str(recipient) {

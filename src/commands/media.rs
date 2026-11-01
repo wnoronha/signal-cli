@@ -2,21 +2,21 @@ use anyhow::anyhow;
 use base64::prelude::*;
 use std::path::Path;
 
-use presage::Manager;
 use presage::libsignal_service::content::{ContentBody, GroupContextV2};
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::proto::attachment_pointer::AttachmentIdentifier;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
-use presage::manager::Registered;
-use presage::store::{Store, Thread};
+use presage::store::Thread;
 use std::str::FromStr;
 
 use crate::output::MediaData;
 use crate::utils::{open_sqlite_store, resolve_recipient};
 
-use super::{load_registered_and_receive, parse_group_id};
+use super::{load_registered, parse_group_id};
+use crate::app::RegisteredManager;
+use presage::store::ContentsStore;
 
 pub(crate) async fn run_get_avatar(
     config_dir: &Path,
@@ -27,13 +27,13 @@ pub(crate) async fn run_get_avatar(
 ) -> anyhow::Result<MediaData> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_get_avatar(&mut manager, contact, profile, group_id).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_get_avatar<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_get_avatar(
+    manager: &mut RegisteredManager,
     contact: Option<String>,
     profile: Option<String>,
     group_id: Option<String>,
@@ -113,13 +113,13 @@ pub(crate) async fn run_get_attachment(
 ) -> anyhow::Result<MediaData> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_get_attachment(&mut manager, id, recipient, group_id).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_get_attachment<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_get_attachment(
+    manager: &mut RegisteredManager,
     id: String,
     recipient: Option<String>,
     group_id: Option<String>,

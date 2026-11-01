@@ -3,21 +3,20 @@ use futures::{StreamExt, pin_mut};
 use std::path::Path;
 use std::str::FromStr;
 
-use presage::Manager;
 use presage::libsignal_service::prelude::Uuid;
 use presage::libsignal_service::prelude::phonenumber::PhoneNumber;
 use presage::libsignal_service::protocol::ServiceId;
 use presage::libsignal_service::zkgroup::profiles::ProfileKey;
-use presage::manager::Registered;
 use presage::model::contacts::Contact;
 use presage::model::messages::Received;
-use presage::store::Store;
 
 use crate::errors::SignalError;
 use crate::output::{ContactInfo, ContactList, ProfileInfo, SuccessResult};
 use crate::utils::{open_sqlite_store, resolve_recipient, u32_from_i64_nonnegative};
 
-use super::{load_registered, load_registered_and_receive};
+use super::load_registered;
+use crate::app::RegisteredManager;
+use presage::store::ContentsStore;
 
 pub(crate) async fn run_list_contacts(
     config_dir: &Path,
@@ -27,13 +26,13 @@ pub(crate) async fn run_list_contacts(
 ) -> anyhow::Result<ContactList> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
     core_list_contacts(&mut manager, name, detailed).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_list_contacts<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_list_contacts(
+    manager: &mut RegisteredManager,
     name: Option<String>,
     detailed: bool,
 ) -> anyhow::Result<ContactList> {
@@ -89,14 +88,14 @@ pub(crate) async fn run_update_profile(
 ) -> anyhow::Result<ProfileInfo> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
 
     core_update_profile(&mut manager, given_name, family_name, about, about_emoji).await
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_update_profile<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_update_profile(
+    manager: &mut RegisteredManager,
     given_name: Option<String>,
     family_name: Option<String>,
     about: Option<String>,
@@ -139,7 +138,7 @@ pub(crate) async fn run_update_contact(
 ) -> anyhow::Result<SuccessResult> {
     let account = crate::utils::require_account(active_account)?;
     let store = open_sqlite_store(config_dir, &account).await?;
-    let mut manager = load_registered_and_receive(store).await?;
+    let mut manager = load_registered(store).await?;
 
     core_update_contact(
         &mut manager,
@@ -153,8 +152,8 @@ pub(crate) async fn run_update_contact(
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_update_contact<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_update_contact(
+    manager: &mut RegisteredManager,
     recipient: String,
     given_name: Option<String>,
     family_name: Option<String>,
@@ -226,8 +225,8 @@ pub(crate) async fn run_send_sync_request(
 }
 
 #[tracing::instrument(skip(manager))]
-pub(crate) async fn core_send_sync_request<S: Store + Send + 'static>(
-    manager: &mut Manager<S, Registered>,
+pub(crate) async fn core_send_sync_request(
+    manager: &mut RegisteredManager,
 ) -> anyhow::Result<SuccessResult> {
     manager.request_contacts().await?;
 

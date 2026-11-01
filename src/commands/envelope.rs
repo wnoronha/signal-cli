@@ -1,8 +1,7 @@
 //! Build Java-shaped `ReceiveEnvelope` values from presage `Content`.
 
-use presage::Manager;
 use presage::libsignal_service::content::{Content, ContentBody};
-use presage::store::{Store, Thread};
+use presage::store::Thread;
 
 use crate::output::{
     AttachmentEnvelope, CallMessageEnvelope, DataMessageEnvelope, ReactionEnvelope,
@@ -10,10 +9,12 @@ use crate::output::{
 };
 
 use super::group_id::encode_group_id_b64;
+use crate::app::RegisteredManager;
 use crate::utils::saturating_millis;
+use presage::store::ContentsStore;
 
-pub async fn build_receive_envelope<S: Store>(
-    manager: &Manager<S, presage::manager::Registered>,
+pub async fn build_receive_envelope(
+    manager: &RegisteredManager,
     content: &Content,
 ) -> ReceiveEnvelope {
     let source_uuid = content.metadata.sender.service_id_string();
